@@ -41,6 +41,7 @@ let state = {
   me: { ...GUEST_ME },
   listings: [],
   offers: [],
+  incomingOffers: [],
   threads: [],
   wants: [],
   ready: false,
@@ -70,7 +71,32 @@ export function getThreadByListing(listingId) {
 export function getOffersForListing(listingId) {
   return state.offers
     .filter((o) => o.listingId === listingId)
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+}
+
+function cleanBound(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+/** Same rules as GET /api/listings: title, description, place, category, and price. */
+export function listingMatches(listing, { q = '', category = '全部', min = null, max = null } = {}) {
+  if (!listing) return false;
+  if (category && category !== '全部' && listing.category !== category) return false;
+  const query = String(q || '').trim().toLowerCase();
+  if (query) {
+    const blob = `${listing.title || ''}\n${listing.description || ''}\n${listing.location || ''}\n${listing.category || ''}`.toLowerCase();
+    if (!blob.includes(query)) return false;
+  }
+  const lo = cleanBound(min);
+  const hi = cleanBound(max);
+  if (lo != null && hi != null && lo > hi) return false;
+  const price = Number(listing.price);
+  if (lo != null && price < lo) return false;
+  if (hi != null && price > hi) return false;
+  return true;
 }
 
 function upsertListing(listing) {
@@ -105,6 +131,7 @@ export async function bootstrap() {
     state.me = { ...GUEST_ME };
     state.listings = [];
     state.offers = [];
+    state.incomingOffers = [];
     state.threads = [];
     state.wants = [];
     return { online: false };
@@ -124,11 +151,14 @@ export async function bootstrap() {
 
   await refreshListings();
   if (isLoggedIn()) {
-    await Promise.all([refreshThreads(), refreshWants(), refreshMyOffers()]);
+    await Promise.all([refreshThreads(), refreshWants()]);
+    await refreshMyOffers();
+    await refreshIncomingOffers();
   } else {
     state.threads = [];
     state.wants = [];
     state.offers = [];
+    state.incomingOffers = [];
   }
   state.ready = true;
   return { online: true, me: state.me };
@@ -136,25 +166,27 @@ export async function bootstrap() {
 
 export async function refreshListings(params = {}) {
   const { listings } = await ListingsApi.list(params);
-  // Merge: keep full cache for detail navigation, but when filtering home we still replace visible set.
-  // For simplicity, replace all when no filters; when filters, still replace (home uses session filters via API).
-  if (!params.q && (!params.category || params.category === '全部')) {
+  const priceFiltered = params.min != null || params.max != null;
+  if (!params.q && (!params.category || params.category === '全部') && !priceFiltered) {
     state.listings = listings;
   } else {
-    // upsert filtered results without wiping others
     for (const l of listings) upsertListing(l);
-    // Also store filtered list marker — home will call list directly via store helper
   }
   return listings;
 }
 
-export async function fetchHomeListings({ q = '', category = '全部' } = {}) {
+export async function fetchHomeListings({ q = '', category = '全部', min = null, max = null } = {}) {
+  const lo = cleanBound(min);
+  const hi = cleanBound(max);
   const { listings } = await ListingsApi.list({
     q: q || undefined,
     category: category !== '全部' ? category : undefined,
+    min: lo == null ? undefined : lo,
+    max: hi == null ? undefined : hi,
   });
-  for (const l of listings) upsertListing(l);
-  return listings;
+  const visible = listings.filter((l) => listingMatches(l, { q, category, min: lo, max: hi }));
+  for (const l of visible) upsertListing(l);
+  return visible;
 }
 
 export async function refreshListing(id) {
@@ -195,9 +227,20 @@ export async function refreshMyOffers() {
     return [];
   }
   const { offers } = await OffersApi.mine();
-  // keep offers for other listings from detail fetches
   const mineIds = new Set(offers.map((o) => o.id));
   state.offers = [...offers, ...state.offers.filter((o) => o.fromId !== state.me.id && !mineIds.has(o.id))];
+  return offers;
+}
+
+export async function refreshIncomingOffers() {
+  if (!isLoggedIn()) {
+    state.incomingOffers = [];
+    return [];
+  }
+  const { offers } = await OffersApi.incoming();
+  state.incomingOffers = offers;
+  const ids = new Set(offers.map((o) => o.id));
+  state.offers = [...offers, ...state.offers.filter((o) => !ids.has(o.id))];
   return offers;
 }
 
@@ -205,7 +248,9 @@ export async function login(email, password) {
   const { token, user } = await AuthApi.login({ email, password });
   setToken(token);
   state.me = asMe(user);
-  await Promise.all([refreshListings(), refreshThreads(), refreshWants(), refreshMyOffers()]);
+  await Promise.all([refreshListings(), refreshThreads(), refreshWants()]);
+  await refreshMyOffers();
+  await refreshIncomingOffers();
   return state.me;
 }
 
@@ -213,7 +258,9 @@ export async function register(name, email, password) {
   const { token, user } = await AuthApi.register({ name, email, password });
   setToken(token);
   state.me = asMe(user);
-  await Promise.all([refreshListings(), refreshThreads(), refreshWants(), refreshMyOffers()]);
+  await Promise.all([refreshListings(), refreshThreads(), refreshWants()]);
+  await refreshMyOffers();
+  await refreshIncomingOffers();
   return state.me;
 }
 
@@ -257,6 +304,7 @@ export async function logout() {
   state.threads = [];
   state.wants = [];
   state.offers = [];
+  state.incomingOffers = [];
   await refreshListings().catch(() => {});
 }
 
@@ -267,12 +315,20 @@ export async function addListing(payload) {
 }
 
 export async function addOffer({ listingId, amount, meetup, message }) {
-  const { offer, thread } = await ListingsApi.createOffer(listingId, {
+  const { offer, thread, updated } = await ListingsApi.createOffer(listingId, {
     amount,
     meetup,
     message,
   });
   state.offers = [offer, ...state.offers.filter((o) => o.id !== offer.id)];
+  upsertThread(thread);
+  return { offer, thread, updated: Boolean(updated) };
+}
+
+export async function respondToOffer(offerId, payload) {
+  const { offer, thread } = await OffersApi.respond(offerId, payload);
+  state.offers = [offer, ...state.offers.filter((o) => o.id !== offer.id)];
+  state.incomingOffers = state.incomingOffers.map((o) => (o.id === offer.id ? offer : o));
   upsertThread(thread);
   return { offer, thread };
 }

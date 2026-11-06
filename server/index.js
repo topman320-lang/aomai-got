@@ -146,6 +146,48 @@ function relativeTime(ts) {
   return new Date(ts).toLocaleDateString('zh-Hant', { timeZone: 'Asia/Macau' });
 }
 
+function offerStatusOf(offer) {
+  const status = offer?.status;
+  if (status === 'accepted' || status === 'rejected' || status === 'countered' || status === 'pending') {
+    return status;
+  }
+  return 'pending';
+}
+
+function offerDto(o, db) {
+  const from = db.users.find((u) => u.id === o.fromId);
+  const thread = db.threads.find((t) => t.listingId === o.listingId && t.buyerId === o.fromId);
+  const status = offerStatusOf(o);
+  return {
+    id: o.id,
+    listingId: o.listingId,
+    fromId: o.fromId,
+    fromName: from?.name || '',
+    amount: o.amount,
+    meetup: o.meetup || '',
+    message: o.message || '',
+    status,
+    counterAmount: o.counterAmount ?? null,
+    counterMessage: o.counterMessage || '',
+    agreedAmount: o.agreedAmount ?? (status === 'accepted' ? o.amount : null),
+    threadId: thread?.id || null,
+    createdAt: o.createdAt,
+    updatedAt: o.updatedAt || o.createdAt,
+  };
+}
+
+function latestOffer(db, listingId, buyerId) {
+  return (
+    db.offers
+      .filter((o) => o.listingId === listingId && o.fromId === buyerId)
+      .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0] || null
+  );
+}
+
+function bumpOffer(db, offer) {
+  db.offers = [offer, ...db.offers.filter((o) => o.id !== offer.id)];
+}
+
 function threadDto(thread, userId, db) {
   const listing = db.listings.find((l) => l.id === thread.listingId);
   const peerId = thread.buyerId === userId ? thread.sellerId : thread.buyerId;
@@ -155,9 +197,12 @@ function threadDto(thread, userId, db) {
     .sort((a, b) => a.createdAt - b.createdAt);
   const unread =
     thread.buyerId === userId ? Boolean(thread.buyerUnread) : Boolean(thread.sellerUnread);
+  const offer = latestOffer(db, thread.listingId, thread.buyerId);
   return {
     id: thread.id,
     listingId: thread.listingId,
+    buyerId: thread.buyerId,
+    sellerId: thread.sellerId,
     peerId: peerId || '',
     peerName: peer?.name || '街坊',
     peerAvatar: presentAvatar(peer?.avatar || '?', PUBLIC_BASE),
@@ -175,6 +220,7 @@ function threadDto(thread, userId, db) {
       };
     }),
     listing: listing ? listingDto(listing, db, PUBLIC_BASE) : null,
+    offer: offer ? offerDto(offer, db) : null,
   };
 }
 
@@ -408,23 +454,41 @@ app.patch('/api/me', auth, (req, res) => {
   res.json({ user: presentUser(user) });
 });
 
+function priceBound(value) {
+  if (value === undefined || value === null) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 /* ---------- Listings ---------- */
 app.get('/api/listings', optionalAuth, (req, res) => {
   const db = loadDb();
   const q = String(req.query.q || '').trim().toLowerCase();
   const category = String(req.query.category || '').trim();
+  const min = priceBound(req.query.min);
+  const max = priceBound(req.query.max);
   let list = [...db.listings].sort((a, b) => b.createdAt - a.createdAt);
   if (category && category !== '全部') {
     list = list.filter((l) => l.category === category);
   }
   if (q) {
-    list = list.filter(
-      (l) =>
-        l.title.toLowerCase().includes(q) ||
-        l.location.toLowerCase().includes(q) ||
-        l.category.toLowerCase().includes(q) ||
-        (l.description || '').toLowerCase().includes(q)
-    );
+    list = list.filter((l) => {
+      const blob = `${l.title || ''}\n${l.description || ''}\n${l.location || ''}\n${l.category || ''}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }
+  if (min != null && max != null && min > max) {
+    list = [];
+  } else if (min != null || max != null) {
+    list = list.filter((l) => {
+      const price = Number(l.price);
+      if (min != null && price < min) return false;
+      if (max != null && price > max) return false;
+      return true;
+    });
   }
   res.json({ listings: list.map((l) => listingDto(l, db, PUBLIC_BASE)) });
 });
@@ -520,38 +584,66 @@ app.get('/api/wants', auth, (req, res) => {
 app.post('/api/listings/:id/offers', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
-  if (!listing) return res.status(404).json({ error: 'NOT_FOUND' });
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
   if (listing.sold) return res.status(400).json({ error: 'LISTING_SOLD', message: '此商品已售出' });
   if (listing.sellerId === req.user.id) {
     return res.status(400).json({ error: 'OWN_LISTING', message: '不能對自己的刊登議價' });
   }
   const amount = Number(req.body?.amount);
   const meetup = String(req.body?.meetup || '賣家地點').trim();
-  const message = String(req.body?.message || '').trim();
+  const message = String(req.body?.message || '').trim().slice(0, 200);
   if (!amount || amount <= 0) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入有效出價' });
   }
-  const offer = {
-    id: id('o-'),
-    listingId: listing.id,
-    fromId: req.user.id,
-    amount,
-    meetup,
-    message,
-    createdAt: Date.now(),
-  };
-  db.offers.unshift(offer);
+
+  const nowTs = Date.now();
+  let offer = latestOffer(db, listing.id, req.user.id);
+  let lead = '出價';
+  if (offer && offerStatusOf(offer) === 'accepted') {
+    return res.status(400).json({
+      error: 'OFFER_ACCEPTED',
+      message: '賣家已接受出價，請在訊息確認交收',
+    });
+  }
+  if (offer) {
+    const prev = offerStatusOf(offer);
+    lead = prev === 'pending' ? '更新出價' : '再出價';
+    offer.amount = amount;
+    offer.meetup = meetup;
+    offer.message = message;
+    offer.status = 'pending';
+    offer.counterAmount = null;
+    offer.counterMessage = '';
+    offer.agreedAmount = null;
+    offer.updatedAt = nowTs;
+    bumpOffer(db, offer);
+  } else {
+    offer = {
+      id: id('o-'),
+      listingId: listing.id,
+      fromId: req.user.id,
+      amount,
+      meetup,
+      message,
+      status: 'pending',
+      counterAmount: null,
+      counterMessage: '',
+      agreedAmount: null,
+      createdAt: nowTs,
+      updatedAt: nowTs,
+    };
+    db.offers.unshift(offer);
+  }
+
   const thread = ensureThread(db, listing, req.user.id);
-  const lines = [`出價 MOP ${offer.amount} · ${meetup}`];
+  const lines = [`${lead} MOP ${offer.amount} · ${meetup}`];
   if (message) lines.push(message);
   pushMessage(db, thread, req.user.id, lines.join('\n'));
   persist();
   res.status(201).json({
-    offer: {
-      ...offer,
-      fromName: req.user.name,
-    },
+    offer: offerDto(offer, db),
     thread: threadDto(thread, req.user.id, db),
+    updated: lead !== '出價',
   });
 });
 
@@ -559,11 +651,8 @@ app.get('/api/listings/:id/offers', optionalAuth, (req, res) => {
   const db = loadDb();
   const offers = db.offers
     .filter((o) => o.listingId === req.params.id)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .map((o) => {
-      const from = db.users.find((u) => u.id === o.fromId);
-      return { ...o, fromName: from?.name || '' };
-    });
+    .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+    .map((o) => offerDto(o, db));
   res.json({ offers });
 });
 
@@ -571,12 +660,89 @@ app.get('/api/offers/mine', auth, (req, res) => {
   const db = loadDb();
   const offers = db.offers
     .filter((o) => o.fromId === req.user.id)
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .map((o) => {
-      const from = db.users.find((u) => u.id === o.fromId);
-      return { ...o, fromName: from?.name || req.user.name };
-    });
+    .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+    .map((o) => offerDto(o, db));
   res.json({ offers });
+});
+
+app.get('/api/offers/incoming', auth, (req, res) => {
+  const db = loadDb();
+  const mine = new Set(db.listings.filter((l) => l.sellerId === req.user.id).map((l) => l.id));
+  const offers = db.offers
+    .filter((o) => mine.has(o.listingId))
+    .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+    .map((o) => offerDto(o, db));
+  res.json({ offers });
+});
+
+app.patch('/api/offers/:id', auth, (req, res) => {
+  const action = String(req.body?.action || '').trim();
+  const db = loadDb();
+  const offer = db.offers.find((o) => o.id === req.params.id);
+  if (!offer) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這筆出價' });
+  const listing = db.listings.find((l) => l.id === offer.listingId);
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listing.sold) return res.status(400).json({ error: 'LISTING_SOLD', message: '此商品已售出' });
+
+  const isSeller = listing.sellerId === req.user.id;
+  const isBuyer = offer.fromId === req.user.id;
+  if (!isSeller && !isBuyer) return res.status(403).json({ error: 'FORBIDDEN' });
+
+  const status = offerStatusOf(offer);
+  if (status === 'accepted' || status === 'rejected') {
+    return res.status(400).json({ error: 'OFFER_CLOSED', message: '這筆出價已有結果' });
+  }
+
+  const thread = ensureThread(db, listing, offer.fromId);
+  const nowTs = Date.now();
+
+  if (action === 'accept') {
+    if (status === 'pending') {
+      if (!isSeller) return res.status(403).json({ error: 'FORBIDDEN', message: '等賣家回覆' });
+      offer.status = 'accepted';
+      offer.agreedAmount = offer.amount;
+      pushMessage(db, thread, req.user.id, `接受出價 MOP ${offer.amount}`);
+    } else if (isBuyer) {
+      offer.status = 'accepted';
+      offer.agreedAmount = offer.counterAmount;
+      pushMessage(db, thread, req.user.id, `接受回價 MOP ${offer.counterAmount}`);
+    } else {
+      offer.status = 'accepted';
+      offer.agreedAmount = offer.amount;
+      pushMessage(db, thread, req.user.id, `接受出價 MOP ${offer.amount}`);
+    }
+  } else if (action === 'reject') {
+    if (status === 'pending' && !isSeller) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: '等賣家回覆' });
+    }
+    offer.status = 'rejected';
+    offer.agreedAmount = null;
+    pushMessage(db, thread, req.user.id, isBuyer && status === 'countered' ? '未接受回價' : '未接受這筆出價');
+  } else if (action === 'counter') {
+    if (!isSeller) return res.status(403).json({ error: 'FORBIDDEN', message: '只有賣家可以回價' });
+    const counterAmount = Number(req.body?.counterAmount);
+    const counterMessage = String(req.body?.counterMessage || '').trim().slice(0, 120);
+    if (!counterAmount || counterAmount <= 0) {
+      return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入有效回價' });
+    }
+    offer.status = 'countered';
+    offer.counterAmount = counterAmount;
+    offer.counterMessage = counterMessage;
+    offer.agreedAmount = null;
+    const lines = [`回價 MOP ${counterAmount}`];
+    if (counterMessage) lines.push(counterMessage);
+    pushMessage(db, thread, req.user.id, lines.join('\n'));
+  } else {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '無法更新這筆出價' });
+  }
+
+  offer.updatedAt = nowTs;
+  bumpOffer(db, offer);
+  persist();
+  res.json({
+    offer: offerDto(offer, db),
+    thread: threadDto(thread, req.user.id, db),
+  });
 });
 
 /* ---------- Threads ---------- */

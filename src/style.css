@@ -558,6 +558,12 @@ img {
   cursor: not-allowed;
 }
 
+.actionbar:has([data-offer-action]) .btn {
+  font-size: 13px;
+  letter-spacing: 0;
+  padding: 0 6px;
+}
+
 .btn:active:not(:disabled) {
   opacity: 0.85;
 }
@@ -1495,7 +1501,66 @@ html[data-theme="dark"] .bubble-row.me .bubble-time {
 
 .home-head .chips {
   padding-top: 8px;
-  padding-bottom: 10px;
+  padding-bottom: 4px;
+}
+
+.price-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px 12px;
+}
+
+.price-filter-label,
+.price-filter-dash {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+.price-filter input {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 0 8px;
+  font-size: 16px;
+  outline: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.price-filter input::-webkit-outer-spin-button,
+.price-filter input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.price-filter input:focus {
+  border-color: var(--ink);
+}
+
+.price-filter-clear {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 4px 0;
+}
+
+.price-filter-clear[hidden] {
+  display: none;
+}
+
+.filter-meta {
+  padding: 10px 16px 0;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
 }
 
 /* Detail gallery, price, trust */
@@ -1833,4 +1898,146 @@ body.offer-open {
 
 .profile .trust-badge {
   margin-top: 2px;
+}
+
+.pill.status-accepted {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+.pill.status-rejected {
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+.thread-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.offer-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.offer-preview .pill {
+  flex: 0 0 auto;
+}
+
+.offer-row-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.offer-block {
+  padding: 4px 16px 8px;
+  background: var(--bg);
+}
+
+.offer-block .section-label:first-child {
+  margin-top: 4px;
+}
+
+.offer-empty {
+  padding: 8px 0 4px;
+}
+
+.list-label {
+  margin: 0;
+  padding: 16px 16px 6px;
+}
+
+.screen > .offer-status {
+  margin: 12px 16px 0;
+}
+
+.offer-status {
+  border: 1px solid var(--ink);
+  padding: 12px;
+  background: var(--bg);
+}
+
+.detail-body .offer-status {
+  margin-top: 8px;
+}
+
+.offer-status + .offer-status {
+  margin-top: 10px;
+}
+
+.offer-status-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.offer-status-name {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.offer-status-detail {
+  margin-top: 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.offer-status .meta {
+  margin-top: 4px;
+}
+
+.offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.offer-actions .btn {
+  flex: 1 1 auto;
+  height: 36px;
+  min-width: 0;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.offer-counter-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.offer-counter-form[hidden] {
+  display: none;
+}
+
+.offer-counter-form input {
+  height: 40px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 0 10px;
+  font-size: 16px;
+  outline: none;
+}
+
+.offer-counter-form input:focus {
+  border-color: var(--ink);
+}
+
+.offer-counter-form .btn {
+  flex: none;
+  width: 100%;
+  height: 40px;
+}
+
+.offer-again {
+  display: inline-block;
+  margin-top: 8px;
 }
