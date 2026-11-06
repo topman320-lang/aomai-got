@@ -92,6 +92,7 @@ export const AuthApi = {
   forgot: (payload) => api('/api/auth/forgot', { method: 'POST', body: payload }),
   reset: (payload) => api('/api/auth/reset', { method: 'POST', body: payload }),
   me: () => api('/api/me', { auth: true }),
+  updateMe: (payload) => api('/api/me', { method: 'PATCH', body: payload, auth: true }),
 };
 
 export const ListingsApi = {

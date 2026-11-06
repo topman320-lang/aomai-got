@@ -10,9 +10,12 @@ import {
   id,
   loadDb,
   persist,
+  isPhotoAvatar,
   pickEmoji,
   pickTone,
+  presentAvatar,
   publicUser,
+  saveAvatarDataUrl,
   savePhotos,
 } from './db.js';
 import { listingDto, normalizeHandover, seedIfEmpty } from './seed.js';
@@ -82,6 +85,9 @@ function sign(user) {
   return jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
 }
 
+const NAME_MAX = 20;
+const BIO_MAX = 80;
+
 function passwordFingerprint(passwordHash) {
   return crypto.createHash('sha256').update(String(passwordHash)).digest('hex').slice(0, 16);
 }
@@ -101,8 +107,30 @@ function isPlausibleEmail(email) {
 const FORGOT_MESSAGE = '若電郵已註冊，我們會寄出重設指引';
 
 function avatarFromName(name = '') {
-  const t = String(name).trim();
-  return t ? t.slice(0, 1) : '用';
+  const chars = Array.from(String(name).trim());
+  return chars.length ? chars[0] : '用';
+}
+
+function presentUser(user) {
+  return publicUser(user, PUBLIC_BASE);
+}
+
+function storedUploadPath(value) {
+  const s = String(value || '').trim().split('?')[0];
+  if (s.startsWith('/uploads/')) return s;
+  const prefix = `${PUBLIC_BASE}/uploads/`;
+  if (s.startsWith(prefix)) return s.slice(PUBLIC_BASE.length);
+  return '';
+}
+
+/** Persist a new data-URL avatar, or keep the caller's current upload. */
+function storeAvatar(raw, current) {
+  const value = String(raw || '').trim();
+  if (value.startsWith('data:')) return saveAvatarDataUrl(value);
+  const incoming = storedUploadPath(value);
+  const existing = storedUploadPath(current);
+  if (incoming && existing && incoming === existing) return existing;
+  return null;
 }
 
 function relativeTime(ts) {
@@ -132,7 +160,7 @@ function threadDto(thread, userId, db) {
     listingId: thread.listingId,
     peerId: peerId || '',
     peerName: peer?.name || '街坊',
-    peerAvatar: peer?.avatar || '?',
+    peerAvatar: presentAvatar(peer?.avatar || '?', PUBLIC_BASE),
     preview: thread.preview || (msgs.length ? msgs[msgs.length - 1].text.split('\n')[0] : ''),
     time: relativeTime(thread.updatedAt || thread.createdAt),
     unread,
@@ -216,7 +244,7 @@ app.get('/privacy', (_req, res) => {
   <p>澳賣 GOT（下稱「本服務」）是一個以鄰里議價為主的二手物品交流平台。我們重視你的個人資料，並依本政策說明蒐集、使用與保存方式。</p>
   <h2>一、我們蒐集什麼</h2>
   <ul>
-    <li>帳號資料：顯示名稱、電郵、密碼（加密儲存）。</li>
+    <li>帳號資料：使用者名稱、個人簡介、頭像、電郵、密碼（加密儲存）。</li>
     <li>刊登與交易相關內容：商品說明、照片、出價、交收意願、聊天訊息。</li>
     <li>裝置與技術資料：基本日誌（例如 IP、瀏覽器類型），用於維運與防止濫用。</li>
   </ul>
@@ -270,7 +298,7 @@ app.post('/api/auth/register', (req, res) => {
   db.users.push(user);
   persist();
   const token = sign(user);
-  res.status(201).json({ token, user: publicUser(user) });
+  res.status(201).json({ token, user: presentUser(user) });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -281,7 +309,7 @@ app.post('/api/auth/login', (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
     return res.status(401).json({ error: 'BAD_CREDENTIALS', message: '電郵或密碼不正確' });
   }
-  res.json({ token: sign(user), user: publicUser(user) });
+  res.json({ token: sign(user), user: presentUser(user) });
 });
 
 app.post('/api/auth/forgot', (req, res) => {
@@ -326,7 +354,58 @@ app.post('/api/auth/reset', (req, res) => {
 });
 
 app.get('/api/me', auth, (req, res) => {
-  res.json({ user: publicUser(req.user) });
+  res.json({ user: presentUser(req.user) });
+});
+
+app.patch('/api/me', auth, (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const hasName = Object.prototype.hasOwnProperty.call(body, 'name');
+  const hasBio = Object.prototype.hasOwnProperty.call(body, 'bio');
+  const hasAvatar = Object.prototype.hasOwnProperty.call(body, 'avatar');
+  if (!hasName && !hasBio && !hasAvatar) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請提供要更新的資料' });
+  }
+
+  const name = (hasName ? String(body.name ?? '') : String(req.user.name || '')).replace(/[\r\n]+/g, ' ').trim();
+  const bio = (hasBio ? String(body.bio ?? '') : String(req.user.bio || '')).trim();
+  if (!name) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請填寫使用者名稱' });
+  }
+  if (Array.from(name).length > NAME_MAX) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: `使用者名稱最多 ${NAME_MAX} 字` });
+  }
+  if (Array.from(bio).length > BIO_MAX) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: `個人簡介最多 ${BIO_MAX} 字` });
+  }
+
+  const db = loadDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(401).json({ error: 'UNAUTHORIZED' });
+
+  let nextAvatar = user.avatar;
+  if (hasAvatar) {
+    const raw = body.avatar;
+    if (raw == null || String(raw).trim() === '') {
+      nextAvatar = avatarFromName(name);
+    } else {
+      const saved = storeAvatar(raw, user.avatar);
+      if (!saved) {
+        return res.status(400).json({ error: 'INVALID_INPUT', message: '無法使用這張頭像，請改選圖片' });
+      }
+      nextAvatar = saved;
+    }
+  } else if (!isPhotoAvatar(user.avatar)) {
+    const previous = String(user.name || '').trim();
+    if (!String(user.avatar || '').trim() || name !== previous) {
+      nextAvatar = avatarFromName(name);
+    }
+  }
+
+  user.name = name;
+  user.bio = bio;
+  user.avatar = nextAvatar;
+  persist();
+  res.json({ user: presentUser(user) });
 });
 
 /* ---------- Listings ---------- */

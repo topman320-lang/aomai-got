@@ -19,6 +19,7 @@ import {
   login,
   logout,
   markThreadRead,
+  updateProfile,
   refreshListing,
   refreshMyOffers,
   refreshThreads,
@@ -94,6 +95,38 @@ function thumbInner(l, { emojiClass = 'emoji' } = {}) {
     return `<img class="thumb-img" src="${escapeAttr(photo)}" alt="" />`;
   }
   return `<span class="${emojiClass}">${l?.emoji || '📦'}</span>`;
+}
+
+function isPhotoAvatar(avatar) {
+  const a = String(avatar || '').trim();
+  return a.startsWith('/uploads/') || a.startsWith('http://') || a.startsWith('https://') || a.startsWith('data:');
+}
+
+function letterFromName(name = '') {
+  const chars = Array.from(String(name).trim());
+  return chars.length ? chars[0] : '用';
+}
+
+function avatarSrc(avatar) {
+  const a = String(avatar || '').trim();
+  if (a.startsWith('/uploads/')) return `${API_BASE}${a}`;
+  if (a.startsWith('data:')) return a;
+  try {
+    const url = new URL(a);
+    if (url.pathname.startsWith('/uploads/')) return `${API_BASE}${url.pathname}`;
+  } catch {
+    /* letter avatar */
+  }
+  return a;
+}
+
+function avatarHtml(avatar, size = '') {
+  const photo = isPhotoAvatar(avatar);
+  const cls = ['avatar', size, photo ? 'has-photo' : ''].filter(Boolean).join(' ');
+  const inner = photo
+    ? `<img src="${escapeAttr(avatarSrc(avatar))}" alt="" />`
+    : escapeHtml(String(avatar || '').trim() ? Array.from(String(avatar).trim())[0] : '用');
+  return `<div class="${cls}">${inner}</div>`;
 }
 
 function listingCard(l, { go: dest = `detail/${l.id}` } = {}) {
@@ -942,7 +975,7 @@ async function renderDetail(id) {
       ${offerNote}
       <div class="section-label">賣家</div>
       <div class="seller-card">
-        <div class="avatar">${escapeHtml(l.sellerAvatar)}</div>
+        ${avatarHtml(l.sellerAvatar)}
         <div>
           <div class="name-row">
             <span class="name">${escapeHtml(l.sellerName)}</span>
@@ -1295,7 +1328,7 @@ async function renderMessages() {
               const l = listings.find((x) => x.id === t.listingId) || t.listing;
               return `
           <button class="thread" type="button" data-go="chat/${t.id}">
-            <div class="avatar sm">${escapeHtml(t.peerAvatar)}</div>
+            ${avatarHtml(t.peerAvatar, 'sm')}
             <div class="body">
               <div class="top">
                 <span class="name">${escapeHtml(t.peerName)}</span>
@@ -1612,7 +1645,7 @@ async function renderMe() {
       <img class="brand-logo brand-logo-lg" data-brand-logo="auto" src="${brandLogoSrc()}" alt="澳賣 GOT" />
     </div>
     <div class="profile">
-      <div class="avatar lg">${escapeHtml(state.me.avatar)}</div>
+      ${avatarHtml(state.me.avatar, 'lg')}
       <div class="name">${escapeHtml(state.me.name)}</div>
       ${logged && state.me.verified ? '<span class="trust-badge trust-verified">已驗證</span>' : ''}
       <div class="meta">${escapeHtml(logged ? state.me.bio || state.me.email || '' : '登入後可刊登、議價與對話')}</div>
@@ -1630,6 +1663,7 @@ async function renderMe() {
       ${
         logged
           ? `
+      <button class="menu-row" type="button" data-go="profile"><span>編輯個人資料</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" data-go="mine"><span>我的刊登</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" data-go="wants"><span>我想要</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" data-go="bargains"><span>我的議價</span><span class="arrow">→</span></button>`
@@ -1664,6 +1698,174 @@ async function renderMe() {
     await logout();
     toast('已登出');
     renderMe();
+  });
+}
+
+const PROFILE_NAME_MAX = 20;
+const PROFILE_BIO_MAX = 80;
+
+function renderProfile() {
+  if (!requireAuth('profile')) return;
+  const me = getState().me;
+  let picked = '';
+  let removed = false;
+  let photoBusy = false;
+
+  const content = `
+    <header class="topbar">
+      <button class="back" type="button" data-go="me" aria-label="返回">←</button>
+      <h1>編輯個人資料</h1>
+    </header>
+    ${offlineBanner()}
+    <form class="form" id="profile-form">
+      <div class="field" id="avatar-field">
+        <label>使用者頭像</label>
+        <div class="avatar-edit">
+          <div id="avatar-preview"></div>
+          <div class="avatar-actions">
+            <label class="photo-camera">
+              <span class="photo-add-label">從相簿選擇</span>
+              <input class="photo-file-input" type="file" accept="image/*" data-avatar="album" aria-label="從相簿選擇頭像" />
+            </label>
+            <label class="photo-camera">
+              <span class="photo-add-label">拍照</span>
+              <input class="photo-file-input" type="file" accept="image/*" capture="environment" data-avatar="camera" aria-label="拍照作為頭像" />
+            </label>
+            <button class="text-link" type="button" id="avatar-clear">移除照片</button>
+          </div>
+        </div>
+        <p class="photo-hint">從相簿選取，或拍照。未設定時顯示名稱首字。</p>
+      </div>
+      <div class="field">
+        <label for="name">使用者名稱</label>
+        <input id="name" name="name" lang="zh-Hant" inputmode="text" autocomplete="nickname" required maxlength="${PROFILE_NAME_MAX}" value="${escapeAttr(me.name)}" placeholder="例如：阿輝" />
+      </div>
+      <div class="field">
+        <label for="bio">個人簡介</label>
+        <textarea id="bio" name="bio" lang="zh-Hant" inputmode="text" autocomplete="off" maxlength="${PROFILE_BIO_MAX}" placeholder="例如：氹仔街坊 · 週末出沒">${escapeHtml(me.bio || '')}</textarea>
+        <p class="photo-hint">最多 ${PROFILE_BIO_MAX} 字，可留空</p>
+      </div>
+      <div class="field">
+        <label for="email">電郵</label>
+        <input id="email" name="email" type="email" value="${escapeAttr(me.email)}" readonly tabindex="-1" />
+        <p class="photo-hint">電郵暫不可更改</p>
+      </div>
+      <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
+        <button class="btn ghost" type="button" data-go="me">取消</button>
+        <button class="btn primary" type="submit">儲存</button>
+      </div>
+    </form>`;
+
+  app.innerHTML = shell(content, { tab: 'me' });
+
+  const preview = app.querySelector('#avatar-preview');
+  const clearBtn = app.querySelector('#avatar-clear');
+  const nameInput = app.querySelector('#name');
+  const avatarField = app.querySelector('#avatar-field');
+
+  const currentName = () => String(nameInput?.value || me.name || '').trim();
+  const showingPhoto = () => Boolean(picked) || (!removed && isPhotoAvatar(me.avatar));
+  const previewAvatar = () => {
+    if (picked) return picked;
+    const typed = currentName();
+    if (removed) return letterFromName(typed);
+    if (isPhotoAvatar(me.avatar)) return me.avatar;
+    const original = String(me.name || '').trim();
+    if (typed === original && String(me.avatar || '').trim()) return me.avatar;
+    return letterFromName(typed);
+  };
+  const paintAvatar = () => {
+    if (preview) preview.innerHTML = avatarHtml(previewAvatar(), 'lg');
+    if (clearBtn) clearBtn.hidden = !showingPhoto();
+  };
+
+  avatarField?.querySelectorAll('input[type="file"]').forEach((input) => {
+    if (input.dataset.avatar === 'camera') {
+      input.removeAttribute('multiple');
+      input.multiple = false;
+      input.setAttribute('capture', 'environment');
+    } else {
+      input.removeAttribute('capture');
+      input.removeAttribute('multiple');
+      input.multiple = false;
+    }
+  });
+
+  nameInput?.addEventListener('input', () => {
+    if (!showingPhoto()) paintAvatar();
+  });
+
+  clearBtn?.addEventListener('click', () => {
+    picked = '';
+    removed = true;
+    paintAvatar();
+  });
+
+  avatarField?.addEventListener('change', async (e) => {
+    const input = e.target.closest?.('input[type="file"]');
+    if (!input || !avatarField.contains(input)) return;
+    const pickedFiles = Array.from(input.files || []);
+    input.value = '';
+    if (!pickedFiles.length) return;
+    if (photoBusy) {
+      toast('請稍候');
+      return;
+    }
+    const file = pickedFiles.find(isLikelyImageFile);
+    if (!file) {
+      toast('請選擇圖片');
+      return;
+    }
+    photoBusy = true;
+    toast('壓縮圖片中…');
+    try {
+      picked = await compressImageFile(file, 640, 0.8);
+      removed = false;
+      toast('已加入頭像');
+    } catch {
+      toast('無法讀取圖片');
+    } finally {
+      photoBusy = false;
+      paintAvatar();
+    }
+  });
+
+  paintAvatar();
+
+  app.querySelector('#profile-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (photoBusy) {
+      toast('請稍候');
+      return;
+    }
+    const fd = new FormData(e.target);
+    const name = String(fd.get('name') || '').replace(/[\r\n]+/g, ' ').trim();
+    const bio = String(fd.get('bio') || '').trim();
+    if (!name) {
+      toast('請填寫使用者名稱');
+      return;
+    }
+    if (Array.from(name).length > PROFILE_NAME_MAX) {
+      toast(`使用者名稱最多 ${PROFILE_NAME_MAX} 字`);
+      return;
+    }
+    if (Array.from(bio).length > PROFILE_BIO_MAX) {
+      toast(`個人簡介最多 ${PROFILE_BIO_MAX} 字`);
+      return;
+    }
+    const payload = { name, bio };
+    if (removed) payload.avatar = '';
+    else if (picked) payload.avatar = picked;
+    const btn = e.target.querySelector('[type="submit"]');
+    if (btn) btn.disabled = true;
+    try {
+      await updateProfile(payload);
+      toast('已更新個人資料');
+      go('me');
+    } catch (err) {
+      errToast(err, '更新失敗');
+      if (btn) btn.disabled = false;
+    }
   });
 }
 
@@ -1705,6 +1907,9 @@ async function route() {
       break;
     case 'me':
       await renderMe();
+      break;
+    case 'profile':
+      renderProfile();
       break;
     case 'login':
       renderLogin();

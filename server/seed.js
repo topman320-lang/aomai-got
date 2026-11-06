@@ -6,6 +6,7 @@ import {
   persist,
   pickEmoji,
   pickTone,
+  presentAvatar,
   publicUser,
 } from './db.js';
 
@@ -244,7 +245,7 @@ export function listingDto(l, db, publicBase) {
     handover: normalizeHandover(l.handover, l.description),
     sellerId: l.sellerId,
     sellerName: seller?.name || '街坊',
-    sellerAvatar: seller?.avatar || '賣',
+    sellerAvatar: presentAvatar(seller?.avatar || '賣', publicBase),
     sellerBio: seller?.bio || '',
     sellerVerified: Boolean(seller?.verified),
     tone: l.tone,
