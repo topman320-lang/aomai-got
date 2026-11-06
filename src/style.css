@@ -816,12 +816,31 @@ img {
 }
 
 .tab .ico {
-  font-size: 18px;
-  line-height: 1;
   width: 28px;
   height: 28px;
   display: grid;
   place-items: center;
+}
+
+.tab .ico svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  overflow: visible;
+}
+
+.tab .ico svg path,
+.tab .ico svg circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tab.active .ico svg path,
+.tab.active .ico svg circle {
+  stroke-width: 2;
 }
 
 .tab.post .ico {
@@ -829,8 +848,6 @@ img {
   height: 36px;
   border: 1.5px solid var(--ink);
   color: var(--ink);
-  font-size: 22px;
-  font-weight: 400;
 }
 
 .tab.post.active .ico {

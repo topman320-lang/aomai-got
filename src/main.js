@@ -212,13 +212,34 @@ function toggleTheme() {
   applyTheme(getTheme() === 'dark' ? 'light' : 'dark');
 }
 
+function tabIcon(name) {
+  const svg = (body) =>
+    `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${body}</svg>`;
+  const icons = {
+    home: svg(
+      `<path d="M3.15 11 12 3.25 20.85 11V20.85H3.15Z"/>`
+    ),
+    messages: svg(
+      `<path d="M3.15 5h17.7v9.15H15.8L12 19.2 8.2 14.15H3.15Z"/>`
+    ),
+    post: svg(`<path d="M12 4.25v15.5M4.25 12h15.5"/>`),
+    bargains: svg(
+      `<path d="M3.2 7.55H17.55"/><path d="M13.7 4.15 17.55 7.55 13.7 10.95"/><path d="M20.8 16.45H6.45"/><path d="M10.3 13.05 6.45 16.45 10.3 19.85"/>`
+    ),
+    me: svg(
+      `<circle cx="12" cy="8.05" r="3.3"/><path d="M20.15 20.75v-1.55a4.2 4.2 0 0 0-4.2-4.2H8.05a4.2 4.2 0 0 0-4.2 4.2v1.55"/>`
+    ),
+  };
+  return icons[name] || '';
+}
+
 function tabbar(active) {
   const tabs = [
-    { id: 'home', label: '首頁', ico: '⌂' },
-    { id: 'messages', label: '訊息', ico: '☰' },
-    { id: 'post', label: '刊登', ico: '+', post: true },
-    { id: 'bargains', label: '議價', ico: '⇄' },
-    { id: 'me', label: '我的', ico: '☺' },
+    { id: 'home', label: '首頁' },
+    { id: 'messages', label: '訊息' },
+    { id: 'post', label: '刊登', post: true },
+    { id: 'bargains', label: '議價' },
+    { id: 'me', label: '我的' },
   ];
   return `
     <nav class="tabbar" aria-label="主導覽">
@@ -226,7 +247,7 @@ function tabbar(active) {
         .map(
           (t) => `
         <button class="tab ${t.post ? 'post' : ''} ${active === t.id ? 'active' : ''}" data-go="${t.id}" type="button">
-          <span class="ico">${t.ico}</span>
+          <span class="ico">${tabIcon(t.id)}</span>
           <span>${t.label}</span>
         </button>`
         )
