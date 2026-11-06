@@ -15,6 +15,7 @@ export const CATEGORIES = ['全部', '潮流', '服飾', '美妝', '數碼', '�
 export const LOCATIONS = ['澳門 · 附近', '氹仔', '中區', '路環', '黑沙環', '筷子基'];
 export const CONDITIONS = ['全新', '幾乎全新', '良好', '有使用痕跡'];
 export const MEETUPS = ['賣家地點', '買家地點', '中間點', '地鐵站'];
+export const HANDOVERS = ['面交', '自取', '面交／自取'];
 
 const GUEST_ME = {
   id: '',
@@ -22,7 +23,19 @@ const GUEST_ME = {
   avatar: '訪',
   bio: '登入後開始議價',
   email: '',
+  verified: false,
 };
+
+function asMe(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    avatar: user.avatar,
+    bio: user.bio || '',
+    email: user.email || '',
+    verified: Boolean(user.verified),
+  };
+}
 
 let state = {
   me: { ...GUEST_ME },
@@ -100,13 +113,7 @@ export async function bootstrap() {
   if (getToken()) {
     try {
       const { user } = await AuthApi.me();
-      state.me = {
-        id: user.id,
-        name: user.name,
-        avatar: user.avatar,
-        bio: user.bio || '',
-        email: user.email || '',
-      };
+      state.me = asMe(user);
     } catch {
       clearToken();
       state.me = { ...GUEST_ME };
@@ -197,13 +204,7 @@ export async function refreshMyOffers() {
 export async function login(email, password) {
   const { token, user } = await AuthApi.login({ email, password });
   setToken(token);
-  state.me = {
-    id: user.id,
-    name: user.name,
-    avatar: user.avatar,
-    bio: user.bio || '',
-    email: user.email || '',
-  };
+  state.me = asMe(user);
   await Promise.all([refreshListings(), refreshThreads(), refreshWants(), refreshMyOffers()]);
   return state.me;
 }
@@ -211,13 +212,7 @@ export async function login(email, password) {
 export async function register(name, email, password) {
   const { token, user } = await AuthApi.register({ name, email, password });
   setToken(token);
-  state.me = {
-    id: user.id,
-    name: user.name,
-    avatar: user.avatar,
-    bio: user.bio || '',
-    email: user.email || '',
-  };
+  state.me = asMe(user);
   await Promise.all([refreshListings(), refreshThreads(), refreshWants(), refreshMyOffers()]);
   return state.me;
 }

@@ -57,6 +57,7 @@ export function publicUser(u) {
     email: u.email,
     avatar: u.avatar,
     bio: u.bio || '',
+    verified: Boolean(u.verified),
   };
 }
 
