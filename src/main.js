@@ -110,9 +110,42 @@ function requireAuth(nextPath) {
   return false;
 }
 
+function isLikelyImageFile(file) {
+  if (!file) return false;
+  const type = String(file.type || '').toLowerCase();
+  if (type.startsWith('image/')) return true;
+  if (type.startsWith('video/') || type.startsWith('audio/')) return false;
+  const name = String(file.name || '');
+  if (/\.(jpe?g|png|gif|webp|heic|heif|bmp|avif|jfif)$/i.test(name)) return true;
+  if (/\.(pdf|txt|zip|docx?|xlsx?|pptx?|mp4|mov|avi|mkv|webm|mp3|wav|m4a)$/i.test(name)) {
+    return false;
+  }
+  // iOS/Android gallery picks often have a blank type or application/octet-stream.
+  return !type || type === 'application/octet-stream';
+}
+
+/** Which slots a new batch should fill. The tapped slot is first (replace). */
+function planPhotoTargets(existing, start, count) {
+  const n = Math.max(0, count | 0);
+  const len = Array.isArray(existing) ? existing.length : 0;
+  if (!n || !len) return [];
+  const startNum = Number(start);
+  let startIdx = Number.isInteger(startNum) ? startNum : -1;
+  if (startIdx < 0 || startIdx >= len) {
+    startIdx = existing.findIndex((p) => !p);
+  }
+  if (startIdx < 0) return [];
+  const targets = [startIdx];
+  for (let step = 1; step < len && targets.length < n; step += 1) {
+    const idx = (startIdx + step) % len;
+    if (!existing[idx]) targets.push(idx);
+  }
+  return targets;
+}
+
 function compressImageFile(file, maxEdge = 960, quality = 0.72) {
   return new Promise((resolve, reject) => {
-    if (!file || !file.type?.startsWith('image/')) {
+    if (!isLikelyImageFile(file)) {
       reject(new Error('NOT_IMAGE'));
       return;
     }
@@ -623,57 +656,68 @@ function renderPost() {
   const condOpts = CONDITIONS.map((c) => `<option value="${c}">${c}</option>`).join('');
 
   const photos = ['', '', ''];
+  let photoBusy = false;
 
   const paintSlots = () => {
     const row = app.querySelector('#photo-row');
+    const actions = app.querySelector('#photo-actions');
     if (!row) return;
     row.innerHTML = [0, 1, 2]
       .map((i) => {
         const src = photos[i];
+        // Album input: no `capture`. That attribute forces the camera and
+        // hides the photo library on iOS Safari, mobile Safari, and many WebViews.
+        // The input itself is the hit target (inside a label) so the tap is a real gesture.
+        const albumInput = `<input class="photo-file-input" type="file" accept="image/*" multiple data-slot="${i}" aria-label="${
+          src ? '從相簿更換照片' : '從相簿加圖'
+        }" />`;
         if (src) {
           return `
-            <div class="photo-slot filled has-img" data-slot="${i}">
+            <div class="photo-slot filled has-img">
               <img src="${escapeAttr(src)}" alt="" />
+              <label class="photo-replace">${albumInput}</label>
               <button type="button" class="photo-clear" data-clear="${i}" aria-label="移除照片">×</button>
             </div>`;
         }
         return `
-            <button type="button" class="photo-slot" data-slot="${i}">
-              ＋ 加圖
-            </button>`;
+            <label class="photo-slot photo-add">
+              <span class="photo-add-label" aria-hidden="true">＋ 加圖</span>
+              ${albumInput}
+            </label>`;
       })
       .join('');
 
-    row.querySelectorAll('[data-slot]').forEach((el) => {
-      el.addEventListener('click', (e) => {
-        if (e.target.closest('[data-clear]')) return;
-        const idx = Number(el.getAttribute('data-slot'));
-        const input = app.querySelector('#photo-input');
-        if (!input) return;
-        input.dataset.slot = String(idx);
-        input.value = '';
-        input.click();
-      });
+    row.querySelectorAll('input[type="file"]').forEach((input) => {
+      input.removeAttribute('capture');
+      input.multiple = true;
     });
-    row.querySelectorAll('[data-clear]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const idx = Number(btn.getAttribute('data-clear'));
-        photos[idx] = '';
-        paintSlots();
+
+    if (actions) {
+      const hasEmpty = photos.some((p) => !p);
+      actions.hidden = !hasEmpty;
+      actions.innerHTML = hasEmpty
+        ? `<label class="photo-camera">
+            <span class="photo-add-label" aria-hidden="true">拍照</span>
+            <input class="photo-file-input" type="file" accept="image/*" capture="environment" data-camera="1" aria-label="拍照" />
+          </label>`
+        : '';
+      actions.querySelectorAll('input[type="file"]').forEach((input) => {
+        input.removeAttribute('multiple');
+        input.multiple = false;
+        input.setAttribute('capture', 'environment');
       });
-    });
+    }
   };
 
   app.innerHTML = shell(
     `
     <header class="topbar"><h1>刊登商品</h1></header>
     <form class="form" id="post-form">
-      <div class="field">
+      <div class="field" id="photo-field">
         <label>照片（最多 3 張）</label>
         <div class="photo-row" id="photo-row"></div>
-        <input id="photo-input" type="file" accept="image/*" capture="environment" hidden />
+        <p class="photo-hint">加圖從相簿選取，可多選。拍照會開啟相機。</p>
+        <div class="photo-actions" id="photo-actions"></div>
       </div>
       <div class="field">
         <label for="title">標題</label>
@@ -707,22 +751,70 @@ function renderPost() {
     { tab: 'post' }
   );
 
-  paintSlots();
+  const photoField = app.querySelector('#photo-field');
 
-  app.querySelector('#photo-input')?.addEventListener('change', async (e) => {
-    const file = e.target.files?.[0];
-    const idx = Number(e.target.dataset.slot || 0);
-    if (!file) return;
-    try {
-      toast('壓縮圖片中…');
-      const dataUrl = await compressImageFile(file);
-      photos[idx] = dataUrl;
-      paintSlots();
-      toast('已加入照片');
-    } catch (_) {
-      toast('無法讀取圖片');
-    }
+  photoField?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-clear]');
+    if (!btn || !photoField.contains(btn)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const idx = Number(btn.getAttribute('data-clear'));
+    if (!Number.isInteger(idx) || idx < 0 || idx >= photos.length) return;
+    photos[idx] = '';
+    paintSlots();
   });
+
+  photoField?.addEventListener('change', async (e) => {
+    const input = e.target.closest?.('input[type="file"]');
+    if (!input || !photoField.contains(input)) return;
+    // Copy first. Clearing the input drops the live FileList, and an empty
+    // list means the picker was cancelled — leave existing photos alone.
+    const picked = Array.from(input.files || []);
+    if (!picked.length) return;
+    input.value = '';
+    if (photoBusy) {
+      toast('請稍候');
+      return;
+    }
+    const camera = input.dataset.camera === '1';
+    const images = picked.filter(isLikelyImageFile);
+    if (!images.length) {
+      toast('請選擇圖片');
+      return;
+    }
+    const chosen = camera ? images.slice(0, 1) : images;
+    const slotAttr = input.hasAttribute('data-slot') ? Number(input.getAttribute('data-slot')) : -1;
+    const targets = planPhotoTargets(photos, camera ? -1 : slotAttr, chosen.length);
+    if (!targets.length) {
+      toast('最多 3 張照片');
+      return;
+    }
+    photoBusy = true;
+    toast('壓縮圖片中…');
+    let added = 0;
+    try {
+      for (let i = 0; i < targets.length; i += 1) {
+        try {
+          photos[targets[i]] = await compressImageFile(chosen[i]);
+          added += 1;
+        } catch {
+          /* keep going so one bad file does not drop the rest */
+        }
+      }
+    } finally {
+      photoBusy = false;
+      paintSlots();
+    }
+    if (!added) {
+      toast('無法讀取圖片');
+      return;
+    }
+    if (images.length > targets.length) toast(`已加入 ${added} 張（最多 3 張）`);
+    else if (added > 1) toast(`已加入 ${added} 張照片`);
+    else toast('已加入照片');
+  });
+
+  paintSlots();
 
   app.querySelector('#post-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
