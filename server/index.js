@@ -14,7 +14,7 @@ import {
   publicUser,
   savePhotos,
 } from './db.js';
-import { listingDto, seedIfEmpty } from './seed.js';
+import { listingDto, normalizeHandover, seedIfEmpty } from './seed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -245,6 +245,7 @@ app.post('/api/auth/register', (req, res) => {
     passwordHash: bcrypt.hashSync(password, 10),
     avatar: avatarFromName(name),
     bio: '澳門街坊',
+    verified: false,
     createdAt: Date.now(),
   };
   db.users.push(user);
@@ -318,6 +319,7 @@ app.post('/api/listings', auth, (req, res) => {
     location,
     condition,
     description,
+    handover: normalizeHandover(req.body?.handover, description),
     sellerId: req.user.id,
     tone: pickTone(title),
     emoji: pickEmoji(category),

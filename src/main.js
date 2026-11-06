@@ -2,6 +2,7 @@ import { API_BASE, privacyUrl } from './api.js';
 import {
   CATEGORIES,
   CONDITIONS,
+  HANDOVERS,
   LOCATIONS,
   MEETUPS,
   addListing,
@@ -57,6 +58,30 @@ function listingBadges(l) {
   return bits.join('');
 }
 
+function priceHtml(n, sold = false) {
+  const num = Number(n).toLocaleString('zh-Hant');
+  return `<div class="price ${sold ? 'price-sold' : ''}"><span class="cur">MOP</span> ${num}</div>`;
+}
+
+function handoverOf(l) {
+  return HANDOVERS.includes(l?.handover) ? l.handover : '面交';
+}
+
+function trustItems(l) {
+  const items = [];
+  if (l?.condition) items.push({ key: 'condition', label: `成色 ${l.condition}` });
+  items.push({ key: 'handover', label: handoverOf(l) });
+  if (l?.negotiable && !isSold(l)) items.push({ key: 'offer', label: '可議價' });
+  if (l?.sellerVerified) items.push({ key: 'verified', label: '賣家已驗證' });
+  return items;
+}
+
+function trustHtml(l) {
+  return trustItems(l)
+    .map((item) => `<span class="trust-badge trust-${item.key}">${escapeHtml(item.label)}</span>`)
+    .join('');
+}
+
 function firstPhoto(l) {
   return Array.isArray(l?.photos) && l.photos[0] ? l.photos[0] : '';
 }
@@ -71,16 +96,23 @@ function thumbInner(l, { emojiClass = 'emoji' } = {}) {
 
 function listingCard(l, { go: dest = `detail/${l.id}` } = {}) {
   const sold = isSold(l);
+  const chips = [
+    l.location ? `<span class="mini-chip">${escapeHtml(l.location)}</span>` : '',
+    l.condition ? `<span class="mini-chip">${escapeHtml(l.condition)}</span>` : '',
+    l.sellerVerified ? `<span class="mini-chip mini-strong">賣家已驗證</span>` : '',
+  ]
+    .filter(Boolean)
+    .join('');
   return `
         <button class="card ${sold ? 'sold' : ''}" type="button" data-go="${dest}">
-          <div class="thumb" style="background:${l.tone}">
+          <div class="thumb" style="background:${escapeAttr(l.tone || '')}">
             ${listingBadges(l)}
             ${thumbInner(l)}
           </div>
           <div class="card-body">
             <div class="card-title">${escapeHtml(l.title)}</div>
-            <div class="price ${sold ? 'price-sold' : ''}">${money(l.price)}</div>
-            <div class="meta">${escapeHtml(l.location)}${sold ? ' · 已售' : ''}</div>
+            ${priceHtml(l.price, sold)}
+            ${chips ? `<div class="card-chips">${chips}</div>` : ''}
           </div>
         </button>`;
 }
@@ -234,10 +266,10 @@ function tabbar(active) {
     </nav>`;
 }
 
-function shell(content, { tab = null, noTab = false } = {}) {
+function shell(content, { tab = null, noTab = false, screenClass = '' } = {}) {
   return `
     <div class="phone">
-      <div class="screen ${noTab ? 'no-tab' : ''}">${content}</div>
+      <div class="screen ${noTab ? 'no-tab' : ''} ${screenClass}">${content}</div>
       ${tab ? tabbar(tab) : ''}
     </div>`;
 }
@@ -363,22 +395,24 @@ async function renderHome() {
   }
 
   const content = `
-    <header class="topbar topbar-brand">
-      <div class="brand brand-home">
-        <img class="brand-logo brand-logo-home" data-brand-logo="auto" src="${brandLogoSrc()}" alt="澳賣 GOT" />
-        <span class="muted tiny brand-tagline">一物一故事 · 閑置亦有價</span>
+    <div class="home-head">
+      <header class="topbar topbar-brand">
+        <div class="brand brand-home">
+          <img class="brand-logo brand-logo-home" data-brand-logo="auto" src="${brandLogoSrc()}" alt="澳賣 GOT" />
+          <span class="muted tiny brand-tagline">一物一故事 · 閑置亦有價</span>
+        </div>
+      </header>
+      <div class="search">
+        <span aria-hidden="true">⌕</span>
+        <input id="search" type="search" lang="zh-Hant" inputmode="search" enterkeyhint="search" placeholder="搜尋附近二手…" value="${escapeAttr(q)}" />
       </div>
-    </header>
+      <div class="chips" id="cats">
+        ${CATEGORIES.map(
+          (c) => `<button type="button" class="chip ${c === cat ? 'active' : ''}" data-cat="${c}">${c}</button>`
+        ).join('')}
+      </div>
+    </div>
     ${offlineBanner()}
-    <div class="search">
-      <span aria-hidden="true">⌕</span>
-      <input id="search" type="search" lang="zh-Hant" inputmode="search" enterkeyhint="search" placeholder="搜尋附近二手…" value="${escapeAttr(q)}" />
-    </div>
-    <div class="chips" id="cats">
-      ${CATEGORIES.map(
-        (c) => `<button type="button" class="chip ${c === cat ? 'active' : ''}" data-cat="${c}">${c}</button>`
-      ).join('')}
-    </div>
     ${
       list.length
         ? `<div class="grid">
@@ -393,7 +427,7 @@ async function renderHome() {
   const selStart = keepFocus ? document.activeElement.selectionStart : null;
   const selEnd = keepFocus ? document.activeElement.selectionEnd : null;
 
-  app.innerHTML = shell(content, { tab: 'home' });
+  app.innerHTML = shell(content, { tab: 'home', screenClass: 'home-screen' });
 
   const search = app.querySelector('#search');
   if (keepFocus && search) {
@@ -405,7 +439,11 @@ async function renderHome() {
 
   const scheduleHome = () => {
     clearTimeout(renderHome._t);
-    renderHome._t = setTimeout(() => renderHome(), 180);
+    renderHome._t = setTimeout(() => {
+      const routeName = parseHash().parts[0] || 'home';
+      if (routeName !== 'home') return;
+      renderHome();
+    }, 180);
   };
 
   search?.addEventListener('compositionstart', () => {
@@ -430,6 +468,285 @@ async function renderHome() {
   });
 }
 
+const uiGallery = { id: '', index: 0 };
+let offerSheetKeyHandler = null;
+
+function offerSuggestions(price) {
+  const ask = Number(price) || 0;
+  if (ask <= 1) return [];
+  const round = (n) => Math.max(1, Math.round(n));
+  const rows = [
+    { label: '九折', amount: round(ask * 0.9) },
+    { label: '八五折', amount: round(ask * 0.85) },
+    { label: '八折', amount: round(ask * 0.8) },
+  ];
+  const seen = new Set();
+  return rows.filter((row) => {
+    if (row.amount >= ask || seen.has(row.amount)) return false;
+    seen.add(row.amount);
+    return true;
+  });
+}
+
+function offerDeltaText(ask, bid) {
+  const offer = Number(bid);
+  const price = Number(ask);
+  if (!offer || offer <= 0) return '';
+  const diff = price - offer;
+  if (diff === 0) return '與標價相同';
+  if (diff > 0) return `較標價低 ${money(diff)}`;
+  return `高於標價 ${money(Math.abs(diff))}`;
+}
+
+function offerComposerHtml(l, { formId, submitInForm = false } = {}) {
+  const suggestions = offerSuggestions(l.price);
+  return `
+    <form class="form offer-form" id="${formId}">
+      <div class="field">
+        <label for="${formId}-amount">你的出價（MOP）</label>
+        <input id="${formId}-amount" name="amount" type="number" min="1" step="1" inputmode="numeric" required placeholder="例如 ${Math.max(1, Math.round(Number(l.price) * 0.85))}" />
+        <div class="offer-delta" data-offer-delta hidden></div>
+        ${
+          suggestions.length
+            ? `<div class="suggest-row" role="group" aria-label="建議出價">
+          ${suggestions
+            .map(
+              (s) =>
+                `<button type="button" class="chip" data-suggest="${s.amount}">${escapeHtml(s.label)} · ${money(s.amount)}</button>`
+            )
+            .join('')}
+        </div>`
+            : ''
+        }
+      </div>
+      <div class="field">
+        <label>交收方式</label>
+        <div class="chips tight">
+          ${MEETUPS.map(
+            (m, i) =>
+              `<button type="button" class="chip ${i === 0 ? 'active' : ''}" data-meetup="${escapeAttr(m)}">${escapeHtml(m)}</button>`
+          ).join('')}
+        </div>
+        <input type="hidden" name="meetup" value="${escapeAttr(MEETUPS[0])}" />
+      </div>
+      <div class="field">
+        <label for="${formId}-message">留言（選填）</label>
+        <textarea id="${formId}-message" name="message" lang="zh-Hant" inputmode="text" autocomplete="off" placeholder="什麼時候方便碰面？"></textarea>
+      </div>
+      ${submitInForm ? `<button class="btn primary" type="submit">送出出價</button>` : ''}
+    </form>`;
+}
+
+function bindOfferForm(form, listing, { onSuccess } = {}) {
+  if (!form) return;
+  const amount = form.querySelector('[name="amount"]');
+  const delta = form.querySelector('[data-offer-delta]');
+  const meetupInput = form.querySelector('[name="meetup"]');
+  const paintDelta = () => {
+    if (!delta || !amount) return;
+    const text = offerDeltaText(listing.price, amount.value);
+    delta.hidden = !text;
+    delta.textContent = text;
+  };
+  amount?.addEventListener('input', () => {
+    form.querySelectorAll('[data-suggest]').forEach((btn) => {
+      btn.classList.toggle('active', String(btn.dataset.suggest) === String(amount.value));
+    });
+    paintDelta();
+  });
+  form.querySelectorAll('[data-suggest]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!amount) return;
+      amount.value = btn.dataset.suggest;
+      form.querySelectorAll('[data-suggest]').forEach((b) => b.classList.toggle('active', b === btn));
+      paintDelta();
+      amount.focus();
+    });
+  });
+  form.querySelectorAll('[data-meetup]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      form.querySelectorAll('[data-meetup]').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (meetupInput) meetupInput.value = btn.dataset.meetup;
+    });
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const bid = Number(fd.get('amount'));
+    if (!bid || bid <= 0) {
+      toast('請輸入有效出價');
+      return;
+    }
+    const buttons = [
+      form.querySelector('[type="submit"]'),
+      document.querySelector(`[type="submit"][form="${form.id}"]`),
+    ].filter(Boolean);
+    buttons.forEach((btn) => {
+      btn.disabled = true;
+    });
+    try {
+      const { thread } = await addOffer({
+        listingId: listing.id,
+        amount: bid,
+        meetup: String(fd.get('meetup') || MEETUPS[0]),
+        message: String(fd.get('message') || '').trim(),
+      });
+      if (onSuccess) onSuccess(thread);
+    } catch (err) {
+      buttons.forEach((btn) => {
+        btn.disabled = false;
+      });
+      if (err?.code === 'LISTING_SOLD') {
+        closeOfferSheet();
+        toast('此商品已售出');
+        go(`detail/${listing.id}`);
+        return;
+      }
+      errToast(err, '送出失敗，請再試');
+    }
+  });
+}
+
+function closeOfferSheet() {
+  document.querySelector('.offer-overlay')?.remove();
+  document.body.classList.remove('offer-open');
+  if (offerSheetKeyHandler) {
+    document.removeEventListener('keydown', offerSheetKeyHandler);
+    offerSheetKeyHandler = null;
+  }
+}
+
+function openOfferSheet(l) {
+  if (isSold(l)) return;
+  if (!requireAuth(`detail/${l.id}`)) return;
+  closeOfferSheet();
+  const overlay = document.createElement('div');
+  overlay.className = 'offer-overlay';
+  overlay.innerHTML = `
+    <div class="offer-sheet" role="dialog" aria-modal="true" aria-label="出價">
+      <div class="offer-sheet-head">
+        <h2>出價</h2>
+        <button type="button" class="offer-close" aria-label="關閉">×</button>
+      </div>
+      <div class="product-strip">
+        <div class="mini" style="background:${escapeAttr(l.tone || '')}">${thumbInner(l)}</div>
+        <div class="info">
+          <div class="title">${escapeHtml(l.title)}</div>
+          <div class="meta">標價 ${money(l.price)}${l.negotiable ? ' · 可議' : ''}</div>
+        </div>
+      </div>
+      <p class="offer-ask">標價 <strong>${money(l.price)}</strong> · 輸入你願意付的價錢</p>
+      ${offerComposerHtml(l, { formId: 'offer-sheet-form', submitInForm: true })}
+      <button type="button" class="offer-footnote" id="offer-history">查看出價紀錄</button>
+      <p class="trust-note offer-trust-note">出價會傳給賣家，並在訊息裡開啟對話。平台不代收款、不代鑑定。</p>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.body.classList.add('offer-open');
+  offerSheetKeyHandler = (e) => {
+    if (e.key === 'Escape') closeOfferSheet();
+  };
+  document.addEventListener('keydown', offerSheetKeyHandler);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeOfferSheet();
+  });
+  overlay.querySelector('.offer-close')?.addEventListener('click', closeOfferSheet);
+  overlay.querySelector('#offer-history')?.addEventListener('click', () => {
+    closeOfferSheet();
+    go(`bargain/${l.id}`);
+  });
+  bindOfferForm(overlay.querySelector('#offer-sheet-form'), l, {
+    onSuccess: (thread) => {
+      closeOfferSheet();
+      toast('出價已送出');
+      if (thread) go(`chat/${thread.id}`);
+      else renderDetail(l.id);
+    },
+  });
+  overlay.querySelector('[name="amount"]')?.focus();
+}
+
+function galleryHtml(l, photos) {
+  const sold = isSold(l);
+  const index = photos.length ? Math.min(uiGallery.index, photos.length - 1) : 0;
+  if (!photos.length) {
+    return `<div class="gallery ${sold ? 'sold' : ''}">
+      <div class="gallery-stage" style="background:${escapeAttr(l.tone || '')}">
+        <span class="emoji">${l.emoji || '📦'}</span>
+        ${sold ? '<span class="sold-banner">已售</span>' : ''}
+      </div>
+    </div>`;
+  }
+  const src = photos[index];
+  return `<div class="gallery ${sold ? 'sold' : ''}" id="gallery">
+    <div class="gallery-stage" style="background:${escapeAttr(l.tone || '')}">
+      <img class="hero-img" src="${escapeAttr(src)}" alt="${escapeAttr(l.title)}" />
+      ${sold ? '<span class="sold-banner">已售</span>' : ''}
+      ${
+        photos.length > 1
+          ? `<button type="button" class="gallery-nav prev" data-photo-step="-1" aria-label="上一張">‹</button>
+        <button type="button" class="gallery-nav next" data-photo-step="1" aria-label="下一張">›</button>
+        <span class="gallery-count">${index + 1} / ${photos.length}</span>`
+          : ''
+      }
+    </div>
+    ${
+      photos.length > 1
+        ? `<div class="gallery-thumbs">
+        ${photos
+          .map(
+            (p, i) =>
+              `<button type="button" class="gallery-thumb ${i === index ? 'on' : ''}" data-photo="${i}" aria-label="第 ${i + 1} 張"><img src="${escapeAttr(p)}" alt="" /></button>`
+          )
+          .join('')}
+      </div>`
+        : ''
+    }
+  </div>`;
+}
+
+function bindGallery(photos) {
+  if (photos.length < 2) return;
+  const root = app.querySelector('#gallery');
+  if (!root) return;
+  const show = (next) => {
+    const len = photos.length;
+    uiGallery.index = ((next % len) + len) % len;
+    const img = root.querySelector('.hero-img');
+    if (img) img.src = photos[uiGallery.index];
+    const count = root.querySelector('.gallery-count');
+    if (count) count.textContent = `${uiGallery.index + 1} / ${len}`;
+    root.querySelectorAll('.gallery-thumb').forEach((btn, i) => {
+      btn.classList.toggle('on', i === uiGallery.index);
+    });
+  };
+  root.querySelectorAll('[data-photo-step]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      show(uiGallery.index + Number(btn.dataset.photoStep));
+    });
+  });
+  root.querySelectorAll('[data-photo]').forEach((btn) => {
+    btn.addEventListener('click', () => show(Number(btn.dataset.photo)));
+  });
+  const stage = root.querySelector('.gallery-stage');
+  let startX = null;
+  stage?.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.gallery-nav')) return;
+    startX = e.clientX;
+  });
+  stage?.addEventListener('pointerup', (e) => {
+    if (startX == null) return;
+    const dx = e.clientX - startX;
+    startX = null;
+    if (Math.abs(dx) < 36) return;
+    show(uiGallery.index + (dx < 0 ? 1 : -1));
+  });
+  stage?.addEventListener('pointercancel', () => {
+    startX = null;
+  });
+}
+
 async function renderDetail(id) {
   const state = getState();
   let l = getListing(id);
@@ -444,10 +761,16 @@ async function renderDetail(id) {
     go('home');
     return;
   }
+  if (uiGallery.id !== id) {
+    uiGallery.id = id;
+    uiGallery.index = 0;
+  }
   const sold = isSold(l);
   const isSeller = isLoggedIn() && l.sellerId === state.me.id;
   const wanted = state.wants.includes(l.id);
   const photos = Array.isArray(l.photos) ? l.photos.filter(Boolean) : [];
+  const myOffer = isLoggedIn() ? getOffersForListing(l.id).find((o) => o.fromId === state.me.id) : null;
+  const thread = getThreadByListing(l.id);
 
   const actionButtons = isSeller
     ? `
@@ -458,59 +781,60 @@ async function renderDetail(id) {
     : sold
       ? `
       <button class="btn primary" type="button" disabled aria-disabled="true">已售出</button>
-      <button class="btn ghost" type="button" disabled aria-disabled="true">我想要</button>`
+      <button class="btn ghost" type="button" disabled aria-disabled="true">想要</button>`
       : `
       <button class="btn primary" type="button" id="go-bargain">議價</button>
-      <button class="btn ghost" type="button" id="want">${wanted ? '已加入我想要' : '我想要'}</button>`;
+      <button class="btn ghost" type="button" id="want">${wanted ? '已想要' : '想要'}</button>`;
 
-  const hero =
-    photos.length > 0
-      ? `<div class="hero ${sold ? 'sold' : ''}" style="background:${l.tone}">
-      <img class="hero-img" src="${escapeAttr(photos[0])}" alt="" />
-      ${sold ? '<span class="sold-banner">已售</span>' : ''}
-      ${
-        photos.length > 1
-          ? `<div class="hero-dots">${photos
-              .map((_, i) => `<span class="hero-dot ${i === 0 ? 'on' : ''}"></span>`)
-              .join('')}</div>`
-          : ''
-      }
-    </div>`
-      : `<div class="hero ${sold ? 'sold' : ''}" style="background:${l.tone}">
-      <span class="emoji">${l.emoji}</span>
-      ${sold ? '<span class="sold-banner">已售</span>' : ''}
-    </div>`;
+  const offerNote = myOffer
+    ? `<div class="my-offer-note">
+        <span>你的出價 ${money(myOffer.amount)}</span>
+        <button type="button" class="text-link" id="my-offer-link">${thread ? '查看對話' : '再出價'}</button>
+      </div>`
+    : '';
 
   const content = `
     <header class="topbar">
       <button class="back" type="button" data-go="home" aria-label="返回">←</button>
       <h1>商品詳情</h1>
     </header>
-    ${hero}
-    <div class="detail">
+    ${galleryHtml(l, photos)}
+    <section class="price-block">
       <div class="price-row">
-        <div class="price ${sold ? 'price-sold' : ''}">${money(l.price)}</div>
-        ${sold ? '<span class="pill sold">已售</span>' : l.negotiable ? '<span class="pill">可議</span>' : ''}
+        ${priceHtml(l.price, sold)}
+        ${sold ? '<span class="pill sold">已售</span>' : ''}
       </div>
       <h2>${escapeHtml(l.title)}</h2>
-      <div class="meta">${escapeHtml(l.location)} · ${escapeHtml(l.condition)} · ${escapeHtml(l.category)}</div>
+      <div class="trust-row">${trustHtml(l)}</div>
+      <p class="trust-note">鄰里二手 · 成色由賣家自行標示。平台不提供鑑定，也不代為寄倉。</p>
+    </section>
+    <section class="detail-body">
+      <div class="meta">${escapeHtml(l.location)} · ${escapeHtml(l.category)}</div>
+      <div class="section-label">說明</div>
       <p class="desc">${escapeHtml(l.description)}</p>
-      <div class="seller">
+      ${offerNote}
+      <div class="section-label">賣家</div>
+      <div class="seller-card">
         <div class="avatar">${escapeHtml(l.sellerAvatar)}</div>
         <div>
-          <div class="name">${escapeHtml(l.sellerName)}</div>
-          <div class="meta">街坊賣家</div>
+          <div class="name-row">
+            <span class="name">${escapeHtml(l.sellerName)}</span>
+            ${l.sellerVerified ? '<span class="trust-badge trust-verified">賣家已驗證</span>' : ''}
+          </div>
+          <div class="meta">${escapeHtml(l.sellerBio || '街坊賣家')}</div>
         </div>
       </div>
-    </div>
+    </section>
     <div class="actionbar">
       ${actionButtons}
     </div>`;
 
   app.innerHTML = shell(content, { noTab: true });
-  app.querySelector('#go-bargain')?.addEventListener('click', () => {
-    if (!requireAuth(`bargain/${l.id}`)) return;
-    go(`bargain/${l.id}`);
+  bindGallery(photos);
+  app.querySelector('#go-bargain')?.addEventListener('click', () => openOfferSheet(l));
+  app.querySelector('#my-offer-link')?.addEventListener('click', () => {
+    if (thread) go(`chat/${thread.id}`);
+    else openOfferSheet(l);
   });
   app.querySelector('#want')?.addEventListener('click', async () => {
     if (isSold(l)) return;
@@ -551,39 +875,26 @@ async function renderBargain(id) {
     go(`detail/${l.id}`);
     return;
   }
+  if (isLoggedIn() && l.sellerId === getState().me.id) {
+    toast('這是你的刊登');
+    go(`detail/${l.id}`);
+    return;
+  }
   const offers = getOffersForListing(id);
   const content = `
     <header class="topbar">
       <button class="back" type="button" data-go="detail/${l.id}" aria-label="返回">←</button>
-      <h1>議價</h1>
+      <h1>出價</h1>
     </header>
     <div class="product-strip">
-      <div class="mini" style="background:${l.tone}">${thumbInner(l)}</div>
+      <div class="mini" style="background:${escapeAttr(l.tone || '')}">${thumbInner(l)}</div>
       <div class="info">
         <div class="title">${escapeHtml(l.title)}</div>
         <div class="meta">標價 ${money(l.price)}${l.negotiable ? ' · 可議' : ''}</div>
       </div>
     </div>
-    <form class="form" id="offer-form">
-      <div class="field">
-        <label for="amount">你的出價（MOP）</label>
-        <input id="amount" name="amount" type="number" min="1" step="1" required placeholder="例如 ${Math.max(1, Math.round(l.price * 0.85))}" />
-      </div>
-      <div class="field">
-        <label>交收方式</label>
-        <div class="chips" id="meetups" style="padding:0">
-          ${MEETUPS.map(
-            (m, i) =>
-              `<button type="button" class="chip outline ${i === 0 ? 'active' : ''}" data-meetup="${m}">${m}</button>`
-          ).join('')}
-        </div>
-        <input type="hidden" name="meetup" id="meetup" value="${MEETUPS[0]}" />
-      </div>
-      <div class="field">
-        <label for="message">留言（選填）</label>
-        <textarea id="message" name="message" lang="zh-Hant" inputmode="text" autocomplete="off" placeholder="什麼時候方便碰面？"></textarea>
-      </div>
-    </form>
+    <div class="bargain-trust">${trustHtml(l)}</div>
+    ${offerComposerHtml(l, { formId: 'offer-form', submitInForm: false })}
     <div class="offer-list">
       <h3>出價紀錄</h3>
       ${
@@ -600,50 +911,21 @@ async function renderBargain(id) {
         </div>`
               )
               .join('')
-          : `<div class="empty" style="padding:16px 0">還沒有出價，做第一個吧</div>`
+          : `<div class="empty" style="padding:16px 0">還沒有出價，輸入金額做第一個</div>`
       }
     </div>
     <div class="actionbar">
       <button class="btn ghost" type="button" data-go="detail/${l.id}">取消</button>
-      <button class="btn primary" type="submit" form="offer-form">送出議價</button>
+      <button class="btn primary" type="submit" form="offer-form">送出出價</button>
     </div>`;
 
   app.innerHTML = shell(content, { noTab: true });
-
-  app.querySelectorAll('[data-meetup]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      app.querySelectorAll('[data-meetup]').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      app.querySelector('#meetup').value = btn.dataset.meetup;
-    });
-  });
-
-  app.querySelector('#offer-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const amount = Number(fd.get('amount'));
-    if (!amount || amount <= 0) {
-      toast('請輸入有效出價');
-      return;
-    }
-    try {
-      const { thread } = await addOffer({
-        listingId: l.id,
-        amount,
-        meetup: String(fd.get('meetup') || MEETUPS[0]),
-        message: String(fd.get('message') || '').trim(),
-      });
-      toast('議價已送出');
+  bindOfferForm(app.querySelector('#offer-form'), l, {
+    onSuccess: (thread) => {
+      toast('出價已送出');
       if (thread) go(`chat/${thread.id}`);
       else renderBargain(id);
-    } catch (err) {
-      if (err?.code === 'LISTING_SOLD') {
-        toast('此商品已售出');
-        go(`detail/${l.id}`);
-        return;
-      }
-      errToast(err, '送出失敗，請再試');
-    }
+    },
   });
 }
 
@@ -740,6 +1022,23 @@ function renderPost() {
         <select id="condition" name="condition">${condOpts}</select>
       </div>
       <div class="field">
+        <label>交收</label>
+        <div class="chips tight" id="handover-chips">
+          ${HANDOVERS.map(
+            (h, i) =>
+              `<button type="button" class="chip ${i === 0 ? 'active' : ''}" data-handover="${escapeAttr(h)}">${escapeHtml(h)}</button>`
+          ).join('')}
+        </div>
+        <input type="hidden" name="handover" id="handover" value="${escapeAttr(HANDOVERS[0])}" />
+      </div>
+      <div class="field check-field">
+        <label class="check-row">
+          <input type="checkbox" name="negotiable" checked />
+          <span>可議價</span>
+        </label>
+        <p class="photo-hint">成色與交收會顯示給買家。這是街坊面交，平台不提供鑑定。</p>
+      </div>
+      <div class="field">
         <label for="description">描述</label>
         <textarea id="description" name="description" lang="zh-Hant" inputmode="text" autocomplete="off" required placeholder="說明狀況、交收時間、是否可議…"></textarea>
       </div>
@@ -816,6 +1115,15 @@ function renderPost() {
 
   paintSlots();
 
+  app.querySelectorAll('[data-handover]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      app.querySelectorAll('[data-handover]').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      const input = app.querySelector('#handover');
+      if (input) input.value = btn.dataset.handover;
+    });
+  });
+
   app.querySelector('#post-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -830,7 +1138,8 @@ function renderPost() {
         location: String(fd.get('location')),
         condition: String(fd.get('condition')),
         description: String(fd.get('description')).trim(),
-        negotiable: true,
+        handover: String(fd.get('handover') || HANDOVERS[0]),
+        negotiable: fd.get('negotiable') === 'on',
         photos: filled,
       });
       toast('已發佈');
@@ -939,7 +1248,7 @@ async function renderChat(threadId) {
 
   const bargainLink =
     l && !isSold(l) && l.sellerId !== meId
-      ? `<button class="btn ghost chat-bargain-link" type="button" data-go="bargain/${l.id}">去議價</button>`
+      ? `<button class="btn ghost chat-bargain-link" type="button" data-go="bargain/${l.id}">出價</button>`
       : '';
 
   const content = `
@@ -1124,7 +1433,7 @@ async function renderWants() {
         ? `<div class="grid">
       ${list.map((l) => listingCard(l)).join('')}
     </div>`
-        : `<div class="empty">還沒有收藏<br/>在商品詳情點「我想要」加入</div>`
+        : `<div class="empty">還沒有收藏<br/>在商品詳情點「想要」加入</div>`
     }`;
 
   app.innerHTML = shell(content, { tab: 'me' });
@@ -1178,6 +1487,7 @@ async function renderMe() {
     <div class="profile">
       <div class="avatar lg">${escapeHtml(state.me.avatar)}</div>
       <div class="name">${escapeHtml(state.me.name)}</div>
+      ${logged && state.me.verified ? '<span class="trust-badge trust-verified">已驗證</span>' : ''}
       <div class="meta">${escapeHtml(logged ? state.me.bio || state.me.email || '' : '登入後可刊登、議價與對話')}</div>
     </div>
     ${
@@ -1233,6 +1543,7 @@ async function renderMe() {
 /* ---------- Router ---------- */
 
 async function route() {
+  closeOfferSheet();
   const { parts } = parseHash();
   const [a, b] = parts;
   switch (a) {

@@ -23,6 +23,7 @@ const DEMO_LISTINGS = [
     emoji: '🧊',
     tone: '#d8d4cc',
     ago: 40,
+    handover: '面交／自取',
   },
   {
     title: 'Unisex 白色恤衫 M',
@@ -35,6 +36,7 @@ const DEMO_LISTINGS = [
     emoji: '👕',
     tone: '#eceae6',
     ago: 90,
+    handover: '面交',
   },
   {
     title: 'Apple Watch SE 44mm',
@@ -47,6 +49,7 @@ const DEMO_LISTINGS = [
     emoji: '⌚',
     tone: '#cfcfcf',
     ago: 180,
+    handover: '面交',
   },
   {
     title: '實木餐枱 四人座',
@@ -59,6 +62,7 @@ const DEMO_LISTINGS = [
     emoji: '🪵',
     tone: '#ddd6c8',
     ago: 300,
+    handover: '自取',
   },
   {
     title: 'Sony 頭戴式耳機',
@@ -71,6 +75,7 @@ const DEMO_LISTINGS = [
     emoji: '🎧',
     tone: '#e4e4e4',
     ago: 420,
+    handover: '面交',
   },
   {
     title: '白色收納櫃 三層',
@@ -84,6 +89,7 @@ const DEMO_LISTINGS = [
     tone: '#f0eeea',
     ago: 600,
     negotiable: false,
+    handover: '自取',
   },
   {
     title: '限定聯名波鞋 42',
@@ -96,6 +102,7 @@ const DEMO_LISTINGS = [
     emoji: '👟',
     tone: '#e8e4de',
     ago: 50,
+    handover: '面交',
   },
   {
     title: '未開封唇膏色號 08',
@@ -109,6 +116,7 @@ const DEMO_LISTINGS = [
     tone: '#f2ece8',
     ago: 70,
     negotiable: false,
+    handover: '面交',
   },
   {
     title: '瑜伽墊 附揹帶',
@@ -121,6 +129,7 @@ const DEMO_LISTINGS = [
     emoji: '🧘',
     tone: '#e6ebe4',
     ago: 110,
+    handover: '面交',
   },
   {
     title: '嬰兒手推車 輕便可摺',
@@ -133,8 +142,23 @@ const DEMO_LISTINGS = [
     emoji: '🍼',
     tone: '#efe8e4',
     ago: 95,
+    handover: '面交',
   },
 ];
+
+export const HANDOVERS = ['面交', '自取', '面交／自取'];
+
+/** Peer handoff only. Never implies warehouse authentication or insured shipping. */
+export function normalizeHandover(value, description = '') {
+  const v = String(value || '').trim();
+  if (HANDOVERS.includes(v)) return v;
+  const text = String(description || '');
+  const pickup = /自取|自備交通|帶走/.test(text);
+  const meet = /面交|交收|碰面/.test(text);
+  if (pickup && meet) return '面交／自取';
+  if (pickup) return '自取';
+  return '面交';
+}
 
 export function seedIfEmpty() {
   const db = loadDb();
@@ -148,9 +172,11 @@ export function seedIfEmpty() {
     passwordHash: demoHash,
     avatar: '輝',
     bio: '氹仔街坊 · 週末出沒',
+    verified: true,
     createdAt: now - 1000 * 60 * 60 * 24 * 30,
   };
 
+  const VERIFIED_SELLERS = new Set(['小美', 'Ada', 'Rex', 'Carmen']);
   const sellers = new Map();
   let sellerN = 0;
   function sellerFor(name) {
@@ -164,6 +190,7 @@ export function seedIfEmpty() {
       passwordHash: demoHash,
       avatar: name.slice(0, 1),
       bio: '澳門街坊賣家',
+      verified: VERIFIED_SELLERS.has(name),
       createdAt: now - 1000 * 60 * 60 * 24 * 10,
     };
     sellers.set(name, u);
@@ -183,6 +210,7 @@ export function seedIfEmpty() {
       location: row.location,
       condition: row.condition,
       description: row.description,
+      handover: normalizeHandover(row.handover, row.description),
       sellerId: seller.id,
       tone: row.tone || pickTone(row.title),
       emoji: row.emoji || pickEmoji(row.category),
@@ -213,9 +241,12 @@ export function listingDto(l, db, publicBase) {
     location: l.location,
     condition: l.condition,
     description: l.description,
+    handover: normalizeHandover(l.handover, l.description),
     sellerId: l.sellerId,
     sellerName: seller?.name || '街坊',
     sellerAvatar: seller?.avatar || '賣',
+    sellerBio: seller?.bio || '',
+    sellerVerified: Boolean(seller?.verified),
     tone: l.tone,
     emoji: l.emoji,
     photos: absolutePhotos(l.photos || [], publicBase),
