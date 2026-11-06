@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import {
@@ -80,6 +81,24 @@ function optionalAuth(req, _res, next) {
 function sign(user) {
   return jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
 }
+
+function passwordFingerprint(passwordHash) {
+  return crypto.createHash('sha256').update(String(passwordHash)).digest('hex').slice(0, 16);
+}
+
+function signReset(user) {
+  return jwt.sign(
+    { sub: user.id, purpose: 'reset', ph: passwordFingerprint(user.passwordHash) },
+    JWT_SECRET,
+    { expiresIn: '30m' }
+  );
+}
+
+function isPlausibleEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
+}
+
+const FORGOT_MESSAGE = '若電郵已註冊，我們會寄出重設指引';
 
 function avatarFromName(name = '') {
   const t = String(name).trim();
@@ -263,6 +282,47 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'BAD_CREDENTIALS', message: '電郵或密碼不正確' });
   }
   res.json({ token: sign(user), user: publicUser(user) });
+});
+
+app.post('/api/auth/forgot', (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!isPlausibleEmail(email)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入有效電郵' });
+  }
+  const db = loadDb();
+  const user = db.users.find((u) => u.email === email);
+  if (user) {
+    // Ready for a mailer (`#/reset?token=...`, 30 minutes). This demo does not
+    // send mail, and the token is not returned: a different body would reveal
+    // which emails are registered, and returning the token would allow takeover.
+    signReset(user);
+  }
+  res.json({ ok: true, message: FORGOT_MESSAGE });
+});
+
+app.post('/api/auth/reset', (req, res) => {
+  const token = String(req.body?.token || '');
+  const password = String(req.body?.password || '');
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '密碼至少 6 位' });
+  }
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+  } catch {
+    return res.status(400).json({ error: 'BAD_TOKEN', message: '重設連結無效或已過期' });
+  }
+  if (!payload || payload.purpose !== 'reset' || !payload.sub) {
+    return res.status(400).json({ error: 'BAD_TOKEN', message: '重設連結無效或已過期' });
+  }
+  const db = loadDb();
+  const user = db.users.find((u) => u.id === payload.sub);
+  if (!user || payload.ph !== passwordFingerprint(user.passwordHash)) {
+    return res.status(400).json({ error: 'BAD_TOKEN', message: '重設連結無效或已過期' });
+  }
+  user.passwordHash = bcrypt.hashSync(password, 10);
+  persist();
+  res.json({ ok: true, message: '密碼已更新，請重新登入' });
 });
 
 app.get('/api/me', auth, (req, res) => {
