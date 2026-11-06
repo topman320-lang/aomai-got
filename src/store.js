@@ -217,6 +217,32 @@ export async function register(name, email, password) {
   return state.me;
 }
 
+function withSeller(listing, me) {
+  if (!listing || listing.sellerId !== me.id) return listing;
+  return {
+    ...listing,
+    sellerName: me.name,
+    sellerAvatar: me.avatar,
+    sellerBio: me.bio || '',
+  };
+}
+
+export async function updateProfile(payload) {
+  const { user } = await AuthApi.updateMe(payload);
+  const me = asMe(user);
+  state.me = me;
+  state.listings = state.listings.map((l) => withSeller(l, me));
+  state.threads = state.threads.map((t) => ({
+    ...t,
+    messages: Array.isArray(t.messages)
+      ? t.messages.map((m) => (m.fromId === me.id ? { ...m, fromName: me.name } : m))
+      : t.messages,
+    listing: withSeller(t.listing, me),
+  }));
+  state.offers = state.offers.map((o) => (o.fromId === me.id ? { ...o, fromName: me.name } : o));
+  return me;
+}
+
 export async function logout() {
   clearToken();
   state.me = { ...GUEST_ME };

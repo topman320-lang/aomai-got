@@ -90,6 +90,7 @@ export const AuthApi = {
   register: (payload) => api('/api/auth/register', { method: 'POST', body: payload }),
   login: (payload) => api('/api/auth/login', { method: 'POST', body: payload }),
   me: () => api('/api/me', { auth: true }),
+  updateMe: (payload) => api('/api/me', { method: 'PATCH', body: payload, auth: true }),
 };
 
 export const ListingsApi = {

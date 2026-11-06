@@ -491,6 +491,20 @@ img {
   font-size: 13px;
 }
 
+.avatar.has-photo {
+  overflow: hidden;
+  background: var(--soft);
+  padding: 0;
+}
+
+.avatar.has-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  grid-area: 1 / 1;
+}
+
 .seller .name {
   font-weight: 600;
   font-size: 14px;
@@ -738,6 +752,33 @@ img {
 .profile .name {
   font-size: 18px;
   font-weight: 700;
+}
+
+.avatar-edit {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.avatar-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.avatar-actions .text-link {
+  padding: 0;
+  background: none;
+}
+
+.avatar-actions .text-link[hidden] {
+  display: none;
+}
+
+.field input[readonly] {
+  color: var(--muted);
 }
 
 .stats {
