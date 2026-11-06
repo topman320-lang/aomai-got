@@ -89,6 +89,8 @@ export async function healthCheck() {
 export const AuthApi = {
   register: (payload) => api('/api/auth/register', { method: 'POST', body: payload }),
   login: (payload) => api('/api/auth/login', { method: 'POST', body: payload }),
+  forgot: (payload) => api('/api/auth/forgot', { method: 'POST', body: payload }),
+  reset: (payload) => api('/api/auth/reset', { method: 'POST', body: payload }),
   me: () => api('/api/me', { auth: true }),
 };
 

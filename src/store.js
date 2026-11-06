@@ -222,6 +222,14 @@ export async function register(name, email, password) {
   return state.me;
 }
 
+export async function requestPasswordReset(email) {
+  return AuthApi.forgot({ email });
+}
+
+export async function resetPassword(token, password) {
+  return AuthApi.reset({ token, password });
+}
+
 export async function logout() {
   clearToken();
   state.me = { ...GUEST_ME };

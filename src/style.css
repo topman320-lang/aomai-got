@@ -367,6 +367,12 @@ img {
   color: var(--muted);
 }
 
+.meta.forgot-ack {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 /* Detail */
 .hero {
   aspect-ratio: 1 / 1;
@@ -501,6 +507,32 @@ img {
 
 .btn:active:not(:disabled) {
   opacity: 0.85;
+}
+
+.form-links {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: -6px;
+  padding: 0 4px;
+}
+
+.text-link {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 4px 0;
+}
+
+.text-link:active {
+  opacity: 0.7;
+}
+
+.text-link:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
 }
 
 /* Forms */
