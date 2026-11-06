@@ -1,0 +1,1 @@
+# aomai-got
