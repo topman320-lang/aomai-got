@@ -25,6 +25,8 @@ import {
   refreshThreads,
   refreshWants,
   register,
+  requestPasswordReset,
+  resetPassword,
   sendMessage,
   setSold,
   stats,
@@ -150,7 +152,7 @@ function listingCard(l, { go: dest = `detail/${l.id}` } = {}) {
         </button>`;
 }
 
-function toast(msg) {
+function toast(msg, ms = 2200) {
   let el = document.querySelector('.toast');
   if (!el) {
     el = document.createElement('div');
@@ -160,7 +162,7 @@ function toast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove('show'), 2200);
+  toast._t = setTimeout(() => el.classList.remove('show'), ms);
 }
 
 function errToast(err, fallback = '操作失敗') {
@@ -277,13 +279,34 @@ function toggleTheme() {
   applyTheme(getTheme() === 'dark' ? 'light' : 'dark');
 }
 
+function tabIcon(name) {
+  const svg = (body) =>
+    `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${body}</svg>`;
+  const icons = {
+    home: svg(
+      `<path d="M3.15 11 12 3.25 20.85 11V20.85H3.15Z"/>`
+    ),
+    messages: svg(
+      `<path d="M3.15 5h17.7v9.15H15.8L12 19.2 8.2 14.15H3.15Z"/>`
+    ),
+    post: svg(`<path d="M12 4.25v15.5M4.25 12h15.5"/>`),
+    bargains: svg(
+      `<path d="M3.2 7.55H17.55"/><path d="M13.7 4.15 17.55 7.55 13.7 10.95"/><path d="M20.8 16.45H6.45"/><path d="M10.3 13.05 6.45 16.45 10.3 19.85"/>`
+    ),
+    me: svg(
+      `<circle cx="12" cy="8.05" r="3.3"/><path d="M20.15 20.75v-1.55a4.2 4.2 0 0 0-4.2-4.2H8.05a4.2 4.2 0 0 0-4.2 4.2v1.55"/>`
+    ),
+  };
+  return icons[name] || '';
+}
+
 function tabbar(active) {
   const tabs = [
-    { id: 'home', label: '首頁', ico: '⌂' },
-    { id: 'messages', label: '訊息', ico: '☰' },
-    { id: 'post', label: '刊登', ico: '+', post: true },
-    { id: 'bargains', label: '議價', ico: '⇄' },
-    { id: 'me', label: '我的', ico: '☺' },
+    { id: 'home', label: '首頁' },
+    { id: 'messages', label: '訊息' },
+    { id: 'post', label: '刊登', post: true },
+    { id: 'bargains', label: '議價' },
+    { id: 'me', label: '我的' },
   ];
   return `
     <nav class="tabbar" aria-label="主導覽">
@@ -291,7 +314,7 @@ function tabbar(active) {
         .map(
           (t) => `
         <button class="tab ${t.post ? 'post' : ''} ${active === t.id ? 'active' : ''}" data-go="${t.id}" type="button">
-          <span class="ico">${t.ico}</span>
+          <span class="ico">${tabIcon(t.id)}</span>
           <span>${t.label}</span>
         </button>`
         )
@@ -335,6 +358,9 @@ function renderLogin() {
         <button class="btn ghost" type="button" data-go="register">註冊</button>
         <button class="btn primary" type="submit">登入</button>
       </div>
+      <p class="form-links">
+        <button class="text-link" type="button" data-go="forgot">忘記密碼</button>
+      </p>
     </form>`;
   app.innerHTML = shell(content, { noTab: true });
   app.querySelector('#login-form')?.addEventListener('submit', async (e) => {
@@ -393,6 +419,107 @@ function renderRegister() {
       go(next);
     } catch (err) {
       errToast(err, '註冊失敗');
+    }
+  });
+}
+
+function renderForgot() {
+  const content = `
+    <header class="topbar">
+      <button class="back" type="button" data-go="login" aria-label="返回">←</button>
+      <h1>忘記密碼</h1>
+    </header>
+    ${offlineBanner()}
+    <form class="form" id="forgot-form">
+      <div class="field">
+        <label for="email">電郵</label>
+        <input id="email" name="email" type="email" autocomplete="email" required placeholder="demo@aomai.got" />
+      </div>
+      <p class="meta" id="forgot-note" style="padding:0 4px">輸入註冊電郵。此示範不會寄出電郵，送出後只確認已收到申請。</p>
+      <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
+        <button class="btn ghost" type="button" data-go="login">返回登入</button>
+        <button class="btn primary" type="submit">送出</button>
+      </div>
+    </form>`;
+  app.innerHTML = shell(content, { noTab: true });
+  app.querySelector('#forgot-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const submit = e.target.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
+    try {
+      const data = await requestPasswordReset(String(fd.get('email')).trim());
+      const message = data?.message || '若電郵已註冊，我們會寄出重設指引';
+      const note = app.querySelector('#forgot-note');
+      if (note) {
+        note.textContent = message;
+        note.classList.add('forgot-ack');
+      }
+      toast(message, 3600);
+    } catch (err) {
+      errToast(err, '送出失敗');
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+  });
+}
+
+function renderReset() {
+  const { params } = parseHash();
+  const token = String(params.token || '').trim();
+  const content = `
+    <header class="topbar">
+      <button class="back" type="button" data-go="login" aria-label="返回">←</button>
+      <h1>重設密碼</h1>
+    </header>
+    ${offlineBanner()}
+    ${
+      token
+        ? `<form class="form" id="reset-form">
+      <div class="field">
+        <label for="password">新密碼</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="至少 6 位" />
+      </div>
+      <div class="field">
+        <label for="password2">再輸入一次</label>
+        <input id="password2" name="password2" type="password" autocomplete="new-password" required minlength="6" placeholder="至少 6 位" />
+      </div>
+      <p class="meta" style="padding:0 4px">重設連結 30 分鐘內有效，且只能使用一次。</p>
+      <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
+        <button class="btn ghost" type="button" data-go="login">返回登入</button>
+        <button class="btn primary" type="submit">更新密碼</button>
+      </div>
+    </form>`
+        : `<div class="empty">
+      <p>重設連結無效或已過期。</p>
+      <p class="form-links" style="justify-content:center;margin-top:16px">
+        <button class="text-link" type="button" data-go="forgot">重新申請</button>
+      </p>
+    </div>`
+    }`;
+  app.innerHTML = shell(content, { noTab: true });
+  app.querySelector('#reset-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const password = String(fd.get('password') || '');
+    const password2 = String(fd.get('password2') || '');
+    if (password.length < 6) {
+      toast('密碼至少 6 位');
+      return;
+    }
+    if (password !== password2) {
+      toast('兩次密碼不一致');
+      return;
+    }
+    const submit = e.target.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
+    try {
+      const data = await resetPassword(token, password);
+      toast(data?.message || '密碼已更新，請重新登入', 2800);
+      go('login');
+    } catch (err) {
+      errToast(err, '重設失敗');
+      if (submit) submit.disabled = false;
     }
   });
 }
@@ -1786,6 +1913,12 @@ async function route() {
       break;
     case 'login':
       renderLogin();
+      break;
+    case 'forgot':
+      renderForgot();
+      break;
+    case 'reset':
+      renderReset();
       break;
     case 'register':
       renderRegister();
