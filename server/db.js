@@ -15,6 +15,7 @@ const EMPTY = () => ({
   threads: [],
   messages: [],
   wants: [],
+  reviews: [],
 });
 
 function ensureDirs() {
