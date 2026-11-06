@@ -100,6 +100,8 @@ export const ListingsApi = {
     const qs = new URLSearchParams();
     if (params.q) qs.set('q', params.q);
     if (params.category) qs.set('category', params.category);
+    if (params.min != null && params.min !== '') qs.set('min', String(params.min));
+    if (params.max != null && params.max !== '') qs.set('max', String(params.max));
     const q = qs.toString();
     return api(`/api/listings${q ? `?${q}` : ''}`);
   },
@@ -141,6 +143,9 @@ export const ThreadsApi = {
 
 export const OffersApi = {
   mine: () => api('/api/offers/mine', { auth: true }),
+  incoming: () => api('/api/offers/incoming', { auth: true }),
+  respond: (id, payload) =>
+    api(`/api/offers/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload, auth: true }),
 };
 
 export const StatsApi = {

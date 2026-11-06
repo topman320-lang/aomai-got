@@ -16,15 +16,19 @@ import {
   getThread,
   getThreadByListing,
   isLoggedIn,
+  listingMatches,
   login,
   logout,
   markThreadRead,
   updateProfile,
+  refreshIncomingOffers,
   refreshListing,
+  refreshListings,
   refreshMyOffers,
   refreshThreads,
   refreshWants,
   register,
+  respondToOffer,
   requestPasswordReset,
   resetPassword,
   sendMessage,
@@ -540,19 +544,48 @@ function renderPrivacy() {
 
 /* ---------- Screens ---------- */
 
+function readPriceDraft(key) {
+  const raw = sessionStorage.getItem(key);
+  if (raw == null) return '';
+  return String(raw).trim();
+}
+
+function priceDraftNumber(raw) {
+  if (raw == null || String(raw).trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 async function renderHome() {
   const q = (sessionStorage.getItem('aomai-q') || '').trim();
   const cat = sessionStorage.getItem('aomai-cat') || '全部';
+  const minRaw = readPriceDraft('aomai-min');
+  const maxRaw = readPriceDraft('aomai-max');
+  const min = priceDraftNumber(minRaw);
+  const max = priceDraftNumber(maxRaw);
+  const rangeInvalid = min != null && max != null && min > max;
+  const filtering = Boolean(q || (cat && cat !== '全部') || minRaw || maxRaw);
 
   let list = [];
-  if (getState().online) {
+  if (getState().online && !rangeInvalid) {
     try {
-      list = await fetchHomeListings({ q, category: cat });
+      list = await fetchHomeListings({ q, category: cat, min, max });
     } catch (err) {
       errToast(err, '載入刊登失敗');
-      list = getState().listings;
+      list = getState().listings.filter((l) => listingMatches(l, { q, category: cat, min, max }));
     }
+  } else if (getState().online && rangeInvalid) {
+    list = [];
   }
+
+  const emptyCopy = !getState().online
+    ? '伺服器未連線<br/>啟動後端後重新整理'
+    : rangeInvalid
+      ? '最低價錢高過最高<br/>改一改範圍再試'
+      : filtering
+        ? '沒有符合的刊登<br/>換個關鍵字、分類或價錢試試'
+        : '暫時沒有刊登';
 
   const content = `
     <div class="home-head">
@@ -564,36 +597,43 @@ async function renderHome() {
       </header>
       <div class="search">
         <span aria-hidden="true">⌕</span>
-        <input id="search" type="search" lang="zh-Hant" inputmode="search" enterkeyhint="search" placeholder="搜尋附近二手…" value="${escapeAttr(q)}" />
+        <input id="search" type="search" lang="zh-Hant" inputmode="search" enterkeyhint="search" placeholder="搜尋標題或描述…" value="${escapeAttr(q)}" />
       </div>
       <div class="chips" id="cats">
         ${CATEGORIES.map(
-          (c) => `<button type="button" class="chip ${c === cat ? 'active' : ''}" data-cat="${c}">${c}</button>`
+          (c) => `<button type="button" class="chip ${c === cat ? 'active' : ''}" data-cat="${escapeAttr(c)}">${escapeHtml(c)}</button>`
         ).join('')}
+      </div>
+      <div class="price-filter">
+        <span class="price-filter-label">價錢</span>
+        <input id="price-min" type="number" inputmode="numeric" min="0" step="1" placeholder="最低" aria-label="最低價錢" value="${escapeAttr(minRaw)}" />
+        <span class="price-filter-dash" aria-hidden="true">–</span>
+        <input id="price-max" type="number" inputmode="numeric" min="0" step="1" placeholder="最高" aria-label="最高價錢" value="${escapeAttr(maxRaw)}" />
+        <button type="button" class="price-filter-clear" id="price-clear" ${minRaw || maxRaw ? '' : 'hidden'}>清除</button>
       </div>
     </div>
     ${offlineBanner()}
+    ${filtering ? `<div class="filter-meta">${rangeInvalid ? '價錢範圍未成立' : `${list.length} 件符合`}</div>` : ''}
     ${
       list.length
         ? `<div class="grid">
       ${list.map((l) => listingCard(l)).join('')}
     </div>`
-        : `<div class="empty">${
-            getState().online ? '沒有符合的刊登<br/>換個關鍵字或分類試試' : '伺服器未連線<br/>啟動後端後重新整理'
-          }</div>`
+        : `<div class="empty">${emptyCopy}</div>`
     }`;
 
-  const keepFocus = document.activeElement?.id === 'search';
+  const focusId = document.activeElement?.id;
+  const keepFocus = focusId === 'search' || focusId === 'price-min' || focusId === 'price-max';
   const selStart = keepFocus ? document.activeElement.selectionStart : null;
   const selEnd = keepFocus ? document.activeElement.selectionEnd : null;
 
   app.innerHTML = shell(content, { tab: 'home', screenClass: 'home-screen' });
 
-  const search = app.querySelector('#search');
-  if (keepFocus && search) {
-    search.focus();
+  const focused = keepFocus ? app.querySelector(`#${focusId}`) : null;
+  if (focused) {
+    focused.focus();
     try {
-      search.setSelectionRange(selStart ?? search.value.length, selEnd ?? search.value.length);
+      focused.setSelectionRange(selStart ?? focused.value.length, selEnd ?? focused.value.length);
     } catch (_) {}
   }
 
@@ -606,6 +646,7 @@ async function renderHome() {
     }, 180);
   };
 
+  const search = app.querySelector('#search');
   search?.addEventListener('compositionstart', () => {
     search.dataset.composing = '1';
   });
@@ -620,12 +661,30 @@ async function renderHome() {
     scheduleHome();
   });
 
+  const bindPrice = (id, key) => {
+    const input = app.querySelector(`#${id}`);
+    input?.addEventListener('input', () => {
+      sessionStorage.setItem(key, input.value);
+      scheduleHome();
+    });
+  };
+  bindPrice('price-min', 'aomai-min');
+  bindPrice('price-max', 'aomai-max');
+  app.querySelector('#price-clear')?.addEventListener('click', () => {
+    sessionStorage.removeItem('aomai-min');
+    sessionStorage.removeItem('aomai-max');
+    renderHome();
+  });
+
   app.querySelectorAll('[data-cat]').forEach((btn) => {
     btn.addEventListener('click', () => {
       sessionStorage.setItem('aomai-cat', btn.dataset.cat);
       renderHome();
     });
   });
+
+  const activeChip = app.querySelector('#cats .chip.active');
+  activeChip?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
 }
 
 const uiGallery = { id: '', index: 0 };
@@ -746,17 +805,23 @@ function bindOfferForm(form, listing, { onSuccess } = {}) {
       btn.disabled = true;
     });
     try {
-      const { thread } = await addOffer({
+      const { thread, updated } = await addOffer({
         listingId: listing.id,
         amount: bid,
         meetup: String(fd.get('meetup') || MEETUPS[0]),
         message: String(fd.get('message') || '').trim(),
       });
-      if (onSuccess) onSuccess(thread);
+      if (onSuccess) onSuccess(thread, { updated });
     } catch (err) {
       buttons.forEach((btn) => {
         btn.disabled = false;
       });
+      if (err?.code === 'OFFER_ACCEPTED') {
+        closeOfferSheet();
+        toast(err.message || '賣家已接受出價');
+        go(`detail/${listing.id}`);
+        return;
+      }
       if (err?.code === 'LISTING_SOLD') {
         closeOfferSheet();
         toast('此商品已售出');
@@ -799,7 +864,7 @@ function openOfferSheet(l) {
       <p class="offer-ask">標價 <strong>${money(l.price)}</strong> · 輸入你願意付的價錢</p>
       ${offerComposerHtml(l, { formId: 'offer-sheet-form', submitInForm: true })}
       <button type="button" class="offer-footnote" id="offer-history">查看出價紀錄</button>
-      <p class="trust-note offer-trust-note">出價會傳給賣家，並在訊息裡開啟對話。平台不代收款、不代鑑定。</p>
+      <p class="trust-note offer-trust-note">送出後先顯示待回覆，等賣家接受、拒絕或回價。平台不代收款、不代鑑定。</p>
     </div>`;
   document.body.appendChild(overlay);
   document.body.classList.add('offer-open');
@@ -816,9 +881,9 @@ function openOfferSheet(l) {
     go(`bargain/${l.id}`);
   });
   bindOfferForm(overlay.querySelector('#offer-sheet-form'), l, {
-    onSuccess: (thread) => {
+    onSuccess: (thread, { updated } = {}) => {
       closeOfferSheet();
-      toast('出價已送出');
+      toast(updated ? '已更新出價，待賣家回覆' : '出價已送出，待賣家回覆');
       if (thread) go(`chat/${thread.id}`);
       else renderDetail(l.id);
     },
@@ -907,6 +972,200 @@ function bindGallery(photos) {
   });
 }
 
+function offerStatusView(offer, role) {
+  const status = offer?.status || 'pending';
+  const amount = Number(offer?.amount);
+  const counter = offer?.counterAmount != null && offer.counterAmount !== '' ? Number(offer.counterAmount) : null;
+  const agreed =
+    offer?.agreedAmount != null && offer.agreedAmount !== ''
+      ? Number(offer.agreedAmount)
+      : status === 'accepted'
+        ? amount
+        : null;
+  if (status === 'accepted') {
+    return { status, label: '已接受', detail: `議定 ${money(agreed)}`, sub: '請自行約交收 · 平台不代收款' };
+  }
+  if (status === 'rejected') {
+    return { status, label: '已拒絕', detail: '這筆未談成', sub: `出價 ${money(amount)}` };
+  }
+  if (status === 'countered' && counter) {
+    return {
+      status,
+      label: '回價',
+      detail: `賣家回價 ${money(counter)}`,
+      sub: role === 'seller' ? `買家出價 ${money(amount)}` : role === 'buyer' ? `你的出價 ${money(amount)}` : `出價 ${money(amount)}`,
+    };
+  }
+  if (role === 'buyer') {
+    return { status: 'pending', label: '待回覆', detail: `你的出價 ${money(amount)}`, sub: '等賣家回覆' };
+  }
+  if (role === 'seller') {
+    return { status: 'pending', label: '待回覆', detail: `買家出價 ${money(amount)}`, sub: '等你回覆' };
+  }
+  return { status: 'pending', label: '待回覆', detail: `出價 ${money(amount)}`, sub: '' };
+}
+
+function statusPill(offer) {
+  const view = offerStatusView(offer, 'other');
+  return `<span class="pill status-${view.status}">${view.label}</span>`;
+}
+
+function offerPartyRole(offer, listing, meId) {
+  if (!offer || !meId) return 'other';
+  if (listing?.sellerId === meId) return 'seller';
+  if (offer.fromId === meId) return 'buyer';
+  return 'other';
+}
+
+function offerBarHtml(offer, role) {
+  if (!offer) return '';
+  const status = offer.status || 'pending';
+  const attrs = `data-offer-id="${escapeAttr(offer.id)}" data-offer-role="${escapeAttr(role)}"`;
+  if (role === 'seller' && status === 'pending') {
+    return `
+      <button class="btn primary" type="button" data-offer-action="accept" ${attrs}>接受出價</button>
+      <button class="btn ghost" type="button" data-offer-action="reject" ${attrs}>拒絕</button>
+      <button class="btn ghost" type="button" data-offer-action="counter-toggle" ${attrs}>回價</button>`;
+  }
+  if (role === 'seller' && status === 'countered') {
+    return `
+      <button class="btn primary" type="button" data-offer-action="accept" ${attrs}>接受原出價</button>
+      <button class="btn ghost" type="button" data-offer-action="reject" ${attrs}>拒絕</button>
+      <button class="btn ghost" type="button" data-offer-action="counter-toggle" ${attrs}>改回價</button>`;
+  }
+  if (role === 'buyer' && status === 'countered') {
+    return `
+      <button class="btn primary" type="button" data-offer-action="accept" ${attrs}>接受回價</button>
+      <button class="btn ghost" type="button" data-offer-action="reject" ${attrs}>不接受</button>`;
+  }
+  return '';
+}
+
+function offerStatusHtml(offer, { role, showThreadLink = true, showButtons = true } = {}) {
+  if (!offer) return '';
+  const view = offerStatusView(offer, role);
+  const open = view.status === 'pending' || view.status === 'countered';
+  const actions = [];
+  if (showButtons && role === 'seller' && view.status === 'pending') {
+    actions.push('<button type="button" class="btn primary" data-offer-action="accept">接受出價</button>');
+    actions.push('<button type="button" class="btn ghost" data-offer-action="reject">拒絕</button>');
+    actions.push('<button type="button" class="btn ghost" data-offer-action="counter-toggle">回價</button>');
+  } else if (showButtons && role === 'seller' && view.status === 'countered') {
+    actions.push('<button type="button" class="btn primary" data-offer-action="accept">接受原出價</button>');
+    actions.push('<button type="button" class="btn ghost" data-offer-action="reject">拒絕</button>');
+    actions.push('<button type="button" class="btn ghost" data-offer-action="counter-toggle">改回價</button>');
+  } else if (showButtons && role === 'buyer' && view.status === 'countered') {
+    actions.push('<button type="button" class="btn primary" data-offer-action="accept">接受回價</button>');
+    actions.push('<button type="button" class="btn ghost" data-offer-action="reject">不接受</button>');
+  }
+  const counterForm =
+    role === 'seller' && open
+      ? `<form class="offer-counter-form" hidden>
+          <input name="counterAmount" type="number" min="1" step="1" inputmode="numeric" placeholder="回價（MOP）" aria-label="回價" required />
+          <input name="counterMessage" type="text" maxlength="120" placeholder="一句話（選填）" aria-label="回價留言" />
+          <button class="btn primary" type="submit">送出回價</button>
+        </form>`
+      : '';
+  const link =
+    showThreadLink && offer.threadId
+      ? `<button type="button" class="text-link" data-go="chat/${escapeAttr(offer.threadId)}">查看對話</button>`
+      : '';
+  const who = role === 'seller' && offer.fromName ? `<div class="offer-status-name">${escapeHtml(offer.fromName)}</div>` : '';
+  const extra =
+    offer.counterMessage && view.status === 'countered'
+      ? `<div class="meta">${escapeHtml(offer.counterMessage)}</div>`
+      : '';
+  const place = offer.meetup
+    ? `<div class="meta">${escapeHtml(offer.meetup)}${offer.message ? ` · ${escapeHtml(offer.message)}` : ''}</div>`
+    : '';
+  return `
+    <div class="offer-status" data-offer-id="${escapeAttr(offer.id)}" data-offer-role="${escapeAttr(role)}">
+      <div class="offer-status-top">
+        <span class="pill status-${view.status}">${view.label}</span>
+        ${link}
+      </div>
+      ${who}
+      <div class="offer-status-detail">${escapeHtml(view.detail)}</div>
+      ${view.sub ? `<div class="meta">${escapeHtml(view.sub)}</div>` : ''}
+      ${extra}
+      ${place}
+      ${actions.length ? `<div class="offer-actions">${actions.join('')}</div>` : ''}
+      ${counterForm}
+    </div>`;
+}
+
+function offerActionToast(role, action) {
+  if (action === 'counter') return '回價已送出';
+  if (action === 'accept') return role === 'buyer' ? '已接受回價' : '已接受出價';
+  return role === 'buyer' ? '未接受回價' : '已拒絕這筆出價';
+}
+
+function bindOfferStatus(root, { onDone } = {}) {
+  if (!root) return;
+
+  const run = async (source, payload) => {
+    const offerId = source?.dataset.offerId;
+    const role = source?.dataset.offerRole || 'other';
+    if (!offerId) return;
+    const scope = source.classList?.contains('offer-status') ? source : source.closest('.actionbar') || source;
+    const buttons = scope.querySelectorAll('button');
+    buttons.forEach((btn) => {
+      btn.disabled = true;
+    });
+    try {
+      await respondToOffer(offerId, payload);
+      toast(offerActionToast(role, payload.action));
+      if (onDone) await onDone();
+    } catch (err) {
+      buttons.forEach((btn) => {
+        btn.disabled = false;
+      });
+      errToast(err, '更新失敗');
+    }
+  };
+
+  const toggleCounter = (btn) => {
+    const host = btn.closest('.offer-status');
+    const offerId = host?.dataset.offerId || btn.dataset.offerId;
+    const card = host || root.querySelector(`.offer-status[data-offer-id="${offerId}"]`);
+    const form = card?.querySelector('.offer-counter-form');
+    if (!form) return;
+    form.hidden = !form.hidden;
+    if (!form.hidden) {
+      form.scrollIntoView({ block: 'center' });
+      form.querySelector('[name="counterAmount"]')?.focus();
+    }
+  };
+
+  root.querySelectorAll('[data-offer-action="counter-toggle"]').forEach((btn) => {
+    btn.addEventListener('click', () => toggleCounter(btn));
+  });
+
+  root.querySelectorAll('.offer-status').forEach((card) => {
+    card.querySelectorAll('[data-offer-action="accept"], [data-offer-action="reject"]').forEach((btn) => {
+      btn.addEventListener('click', () => run(card, { action: btn.dataset.offerAction }));
+    });
+    card.querySelector('.offer-counter-form')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.currentTarget);
+      const counterAmount = Number(fd.get('counterAmount'));
+      if (!counterAmount || counterAmount <= 0) {
+        toast('請輸入有效回價');
+        return;
+      }
+      run(card, {
+        action: 'counter',
+        counterAmount,
+        counterMessage: String(fd.get('counterMessage') || '').trim(),
+      });
+    });
+  });
+
+  root.querySelectorAll('.actionbar [data-offer-action="accept"], .actionbar [data-offer-action="reject"]').forEach((btn) => {
+    btn.addEventListener('click', () => run(btn, { action: btn.dataset.offerAction }));
+  });
+}
+
 async function renderDetail(id) {
   const state = getState();
   let l = getListing(id);
@@ -929,27 +1188,71 @@ async function renderDetail(id) {
   const isSeller = isLoggedIn() && l.sellerId === state.me.id;
   const wanted = state.wants.includes(l.id);
   const photos = Array.isArray(l.photos) ? l.photos.filter(Boolean) : [];
-  const myOffer = isLoggedIn() ? getOffersForListing(l.id).find((o) => o.fromId === state.me.id) : null;
-  const thread = getThreadByListing(l.id);
+  const offers = getOffersForListing(l.id);
+  const myOffer = isLoggedIn() ? offers.find((o) => o.fromId === state.me.id) : null;
+  const thread = myOffer?.threadId ? { id: myOffer.threadId } : getThreadByListing(l.id);
+  const isOpenOffer = (o) => o && (o.status === 'pending' || o.status === 'countered' || !o.status);
+  const sellerBarOffer = isSeller ? offers.find(isOpenOffer) : null;
+  const buyerBar = !isSeller && !sold && myOffer?.status === 'countered';
+  const responseBar = sellerBarOffer
+    ? offerBarHtml(sellerBarOffer, 'seller')
+    : buyerBar
+      ? offerBarHtml(myOffer, 'buyer')
+      : '';
 
-  const actionButtons = isSeller
-    ? `
+  const actionButtons = responseBar
+    ? responseBar
+    : isSeller
+      ? `
       <button class="btn ${sold ? 'ghost' : 'primary'}" type="button" id="toggle-sold">
         ${sold ? '取消已售出' : '標示為已售出'}
       </button>
       <button class="btn ghost" type="button" data-go="mine">我的刊登</button>`
-    : sold
-      ? `
+      : sold
+        ? `
       <button class="btn primary" type="button" disabled aria-disabled="true">已售出</button>
       <button class="btn ghost" type="button" disabled aria-disabled="true">想要</button>`
-      : `
-      <button class="btn primary" type="button" id="go-bargain">議價</button>
+        : myOffer?.status === 'accepted'
+          ? `
+      <button class="btn primary" type="button" id="go-thread">查看對話</button>
+      <button class="btn ghost" type="button" id="want">${wanted ? '已想要' : '想要'}</button>`
+          : `
+      <button class="btn primary" type="button" id="go-bargain">${
+        !myOffer ? '議價' : myOffer.status === 'pending' ? '更新出價' : '再出價'
+      }</button>
       <button class="btn ghost" type="button" id="want">${wanted ? '已想要' : '想要'}</button>`;
 
   const offerNote = myOffer
-    ? `<div class="my-offer-note">
-        <span>你的出價 ${money(myOffer.amount)}</span>
-        <button type="button" class="text-link" id="my-offer-link">${thread ? '查看對話' : '再出價'}</button>
+    ? `<div class="offer-block">
+        <div class="section-label">我的議價</div>
+        ${offerStatusHtml(myOffer, { role: 'buyer', showButtons: !buyerBar })}
+        ${
+          myOffer.status === 'rejected' && !sold
+            ? `<button type="button" class="text-link offer-again" id="my-offer-link">再出價</button>`
+            : ''
+        }
+      </div>`
+    : '';
+  const sellerOffers = isSeller
+    ? `<div class="offer-block" id="seller-offers">
+        <div class="section-label">收到的出價</div>
+        ${
+          sellerBarOffer
+            ? `<button type="button" class="text-link offer-again" id="toggle-sold">${sold ? '取消已售出' : '標示為已售出'}</button>`
+            : ''
+        }
+        ${
+          offers.length
+            ? offers
+                .map((o) =>
+                  offerStatusHtml(o, {
+                    role: 'seller',
+                    showButtons: !sellerBarOffer || o.id !== sellerBarOffer.id,
+                  })
+                )
+                .join('')
+            : '<div class="empty offer-empty">尚未收到出價</div>'
+        }
       </div>`
     : '';
 
@@ -968,11 +1271,12 @@ async function renderDetail(id) {
       <div class="trust-row">${trustHtml(l)}</div>
       <p class="trust-note">鄰里二手 · 成色由賣家自行標示。平台不提供鑑定，也不代為寄倉。</p>
     </section>
+    ${offerNote}
+    ${sellerOffers}
     <section class="detail-body">
       <div class="meta">${escapeHtml(l.location)} · ${escapeHtml(l.category)}</div>
       <div class="section-label">說明</div>
       <p class="desc">${escapeHtml(l.description)}</p>
-      ${offerNote}
       <div class="section-label">賣家</div>
       <div class="seller-card">
         ${avatarHtml(l.sellerAvatar)}
@@ -991,9 +1295,14 @@ async function renderDetail(id) {
 
   app.innerHTML = shell(content, { noTab: true });
   bindGallery(photos);
+  bindOfferStatus(app, { onDone: () => renderDetail(id) });
   app.querySelector('#go-bargain')?.addEventListener('click', () => openOfferSheet(l));
+  app.querySelector('#go-thread')?.addEventListener('click', () => {
+    if (thread?.id) go(`chat/${thread.id}`);
+    else go('bargains');
+  });
   app.querySelector('#my-offer-link')?.addEventListener('click', () => {
-    if (thread) go(`chat/${thread.id}`);
+    if (thread && myOffer?.status !== 'rejected') go(`chat/${thread.id}`);
     else openOfferSheet(l);
   });
   app.querySelector('#want')?.addEventListener('click', async () => {
@@ -1065,8 +1374,9 @@ async function renderBargain(id) {
         <div class="offer">
           <div class="row">
             <span>${escapeHtml(o.fromName)}</span>
-            <span class="amount">${money(o.amount)}</span>
+            <span class="amount">${money(o.status === 'countered' && o.counterAmount ? o.counterAmount : o.agreedAmount || o.amount)}</span>
           </div>
+          <div class="offer-row-status">${statusPill(o)}${o.status === 'countered' ? `<span class="meta">回價 · 原出價 ${money(o.amount)}</span>` : ''}</div>
           <div class="meta">${escapeHtml(o.meetup)}${o.message ? ` · ${escapeHtml(o.message)}` : ''}</div>
         </div>`
               )
@@ -1081,8 +1391,8 @@ async function renderBargain(id) {
 
   app.innerHTML = shell(content, { noTab: true });
   bindOfferForm(app.querySelector('#offer-form'), l, {
-    onSuccess: (thread) => {
-      toast('出價已送出');
+    onSuccess: (thread, { updated } = {}) => {
+      toast(updated ? '已更新出價，待賣家回覆' : '出價已送出，待賣家回覆');
       if (thread) go(`chat/${thread.id}`);
       else renderBargain(id);
     },
@@ -1332,7 +1642,7 @@ async function renderMessages() {
             <div class="body">
               <div class="top">
                 <span class="name">${escapeHtml(t.peerName)}</span>
-                <span class="meta tiny">${escapeHtml(t.time)}</span>
+                <span class="thread-side">${t.offer ? statusPill(t.offer) : ''}<span class="meta tiny">${escapeHtml(t.time)}</span></span>
               </div>
               <div class="preview">${escapeHtml(t.preview)}</div>
             </div>
@@ -1379,6 +1689,9 @@ async function renderChat(threadId) {
   const l = getListing(thread.listingId) || thread.listing;
   const meId = state.me.id;
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
+  const offer = thread.offer || null;
+  const role = offer ? offerPartyRole(offer, l, meId) : 'other';
+  const statusCard = offer ? offerStatusHtml(offer, { role, showThreadLink: false }) : '';
 
   const bubbles = messages.length
     ? messages
@@ -1407,7 +1720,7 @@ async function renderChat(threadId) {
     : '';
 
   const bargainLink =
-    l && !isSold(l) && l.sellerId !== meId
+    l && !isSold(l) && l.sellerId !== meId && offer?.status !== 'accepted'
       ? `<button class="btn ghost chat-bargain-link" type="button" data-go="bargain/${l.id}">出價</button>`
       : '';
 
@@ -1418,6 +1731,7 @@ async function renderChat(threadId) {
       ${bargainLink}
     </header>
     ${strip}
+    ${statusCard}
     <div class="chat-log" id="chat-log">${bubbles}</div>
     <form class="chat-composer" id="chat-form">
       <input id="chat-input" type="text" lang="zh-Hant" inputmode="text" autocomplete="off" enterkeyhint="send" placeholder="輸入訊息…" maxlength="500" />
@@ -1425,6 +1739,7 @@ async function renderChat(threadId) {
     </form>`;
 
   app.innerHTML = shell(content, { noTab: true });
+  bindOfferStatus(app, { onDone: () => renderChat(threadId) });
 
   const log = app.querySelector('#chat-log');
   if (log) log.scrollTop = log.scrollHeight;
@@ -1467,10 +1782,41 @@ async function renderChat(threadId) {
   });
 }
 
+function offerRow(o, { incoming = false } = {}) {
+  const l = getListing(o.listingId);
+  if (!l && !o.listingId) return '';
+  const view = offerStatusView(o, incoming ? 'seller' : 'buyer');
+  const dest = o.threadId ? `chat/${o.threadId}` : incoming ? `detail/${o.listingId}` : `bargain/${o.listingId}`;
+  const title = l?.title || '商品';
+  const tone = l?.tone || '#f5f5f5';
+  const amount =
+    o.status === 'accepted' && o.agreedAmount
+      ? o.agreedAmount
+      : o.status === 'countered' && o.counterAmount
+        ? o.counterAmount
+        : o.amount;
+  const preview = incoming
+    ? `${o.fromName ? `${o.fromName} · ` : ''}${view.label}${view.status === 'countered' ? ` · ${view.detail}` : ''}`
+    : `${view.sub || view.detail}${o.meetup ? ` · ${o.meetup}` : ''}`;
+  return `
+          <button class="thread" type="button" data-go="${dest}">
+            <div class="thumb-sm" style="background:${tone}">${l ? thumbInner(l) : '📦'}</div>
+            <div class="body">
+              <div class="top">
+                <span class="name">${escapeHtml(title)}</span>
+                <span class="amount" style="font-size:13px">${money(amount)}</span>
+              </div>
+              <div class="preview offer-preview">${statusPill(o)}<span>${escapeHtml(preview)}</span></div>
+            </div>
+          </button>`;
+}
+
 async function renderBargainsTab() {
   if (!requireAuth('bargains')) return;
   try {
+    await refreshListings();
     await refreshMyOffers();
+    await refreshIncomingOffers();
     await refreshThreads();
   } catch (err) {
     errToast(err);
@@ -1478,32 +1824,24 @@ async function renderBargainsTab() {
   const state = getState();
   const myOffers = state.offers
     .filter((o) => o.fromId === state.me.id)
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+  const incoming = (state.incomingOffers || [])
+    .slice()
+    .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+
+  const incomingBlock = incoming.length
+    ? `<div class="section-label list-label">收到的出價</div>${incoming.map((o) => offerRow(o, { incoming: true })).join('')}`
+    : '';
+  const mineBlock = myOffers.length
+    ? `${incoming.length ? '<div class="section-label list-label">我出的價</div>' : ''}${myOffers.map((o) => offerRow(o)).join('')}`
+    : '';
 
   const content = `
     <header class="topbar"><h1>我的議價</h1></header>
     ${
-      myOffers.length
-        ? myOffers
-            .map((o) => {
-              const l = getListing(o.listingId);
-              if (!l) return '';
-              const thread = getThreadByListing(l.id);
-              const dest = thread ? `chat/${thread.id}` : `bargain/${l.id}`;
-              return `
-          <button class="thread" type="button" data-go="${dest}">
-            <div class="thumb-sm" style="background:${l.tone}">${thumbInner(l)}</div>
-            <div class="body">
-              <div class="top">
-                <span class="name">${escapeHtml(l.title)}</span>
-                <span class="amount" style="font-size:13px">${money(o.amount)}</span>
-              </div>
-              <div class="preview">${escapeHtml(o.meetup)}${o.message ? ` · ${escapeHtml(o.message)}` : ''}</div>
-            </div>
-          </button>`;
-            })
-            .join('')
-        : `<div class="empty">尚未送出議價<br/>在商品詳情點「議價」開始</div>`
+      incomingBlock || mineBlock
+        ? `${incomingBlock}${mineBlock}`
+        : `<div class="empty">尚未有議價<br/>在商品詳情點「議價」，或等街坊向你出價</div>`
     }`;
   app.innerHTML = shell(content, { tab: 'bargains' });
 }
