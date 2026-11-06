@@ -1,0 +1,45 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# Capacitor
+ios/App/Pods
+ios/App/App/public
+android/.gradle
+android/app/build
+android/build
+android/captures
+android/app/src/main/assets/public
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Server runtime data (keep directory placeholders)
+server/data/*.json
+server/uploads/*
+!server/uploads/.gitkeep

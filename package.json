@@ -1,0 +1,26 @@
+{
+  "name": "aomai-got",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:mobile": "npm run build && npx cap sync",
+    "open:ios": "npx cap open ios",
+    "open:android": "npx cap open android",
+    "server": "npm --prefix server start",
+    "server:install": "npm --prefix server install"
+  },
+  "devDependencies": {
+    "vite": "^8.3.6"
+  },
+  "description": "\u6fb3\u8ce3 GOT \u2014 Macau neighborly secondhand bargaining marketplace prototype",
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0"
+  }
+}

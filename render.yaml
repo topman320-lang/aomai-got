@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: aomai-got
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm --prefix server install && VITE_API_URL= npm run build
+    startCommand: npm --prefix server start
+    healthCheckPath: /api/listings
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: ./data
+      - key: UPLOADS_DIR
+        value: ./uploads
