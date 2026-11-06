@@ -1013,15 +1013,96 @@ html[data-theme="dark"] .theme-switch::after {
   position: absolute;
   top: 4px;
   right: 4px;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   background: var(--ink);
   color: var(--on-ink);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
   display: grid;
   place-items: center;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+/* Album / camera file inputs must stay hit-testable.
+   display:none (the hidden attribute) and capture on the album input
+   block the photo library on iOS and Android WebViews. */
+.field label.photo-slot {
+  display: grid;
+  margin-bottom: 0;
+  letter-spacing: 0;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.field label.photo-replace {
+  position: absolute;
+  inset: 0;
+  display: block;
+  margin: 0;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.photo-add-label {
+  pointer-events: none;
+}
+
+.field input.photo-file-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: transparent;
+  opacity: 0.02;
+  /* Large font enlarges the native file-button hit target in mobile WebKit. */
+  font-size: 100px;
+  line-height: 1;
+  cursor: pointer;
   z-index: 2;
+  display: block;
+  pointer-events: auto;
+  appearance: auto;
+  -webkit-appearance: auto;
+  touch-action: manipulation;
+}
+
+.photo-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.photo-actions {
+  margin-top: 8px;
+}
+
+.photo-actions[hidden] {
+  display: none;
+}
+
+.field label.photo-camera {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  margin: 0;
+  min-width: 96px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--ink);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
 }
 
 .thumb-img,
