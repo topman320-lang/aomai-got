@@ -1,15 +1,18 @@
 import { API_BASE, privacyUrl } from './api.js';
+import { enableNotifications, notifyStatusText, watchNotices } from './notify.js';
 import {
   CATEGORIES,
-  CONDITIONS,
+  CONDITION_OPTIONS,
   HANDOVERS,
   LOCATIONS,
+  MEET_PLACES,
   MEETUPS,
   addListing,
   addOffer,
   addReview,
   addWant,
   bootstrap,
+  confirmHandoff,
   fetchHomeListings,
   fetchUser,
   getBadges,
@@ -22,8 +25,11 @@ import {
   listingMatches,
   login,
   logout,
+  markNoticesRead,
   markThreadRead,
   priceHint,
+  refreshBadges,
+  refreshNotices,
   removeWant,
   updateProfile,
   refreshIncomingOffers,
@@ -36,6 +42,7 @@ import {
   respondToOffer,
   requestPasswordReset,
   resetPassword,
+  saveHandoff,
   sendMessage,
   setSold,
   stats,
@@ -228,31 +235,44 @@ function planPhotoTargets(existing, start, count) {
   return targets;
 }
 
-function compressImageFile(file, maxEdge = 960, quality = 0.72) {
+function compressImageFile(file, maxEdge = 1280, quality = 0.72) {
   return new Promise((resolve, reject) => {
     if (!isLikelyImageFile(file)) {
       reject(new Error('NOT_IMAGE'));
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      reject(new Error('TOO_LARGE'));
       return;
     }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
-      let { width, height } = img;
-      const scale = Math.min(1, maxEdge / Math.max(width, height));
-      width = Math.max(1, Math.round(width * scale));
-      height = Math.max(1, Math.round(height * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        reject(new Error('NO_CANVAS'));
-        return;
-      }
-      ctx.drawImage(img, 0, 0, width, height);
+      const encode = (edge, q) => {
+        let { width, height } = img;
+        const scale = Math.min(1, edge / Math.max(width, height, 1));
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('NO_CANVAS');
+        ctx.drawImage(img, 0, 0, width, height);
+        return canvas.toDataURL('image/jpeg', q);
+      };
       try {
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        let edge = maxEdge;
+        let q = quality;
+        let data = encode(edge, q);
+        // data URLs are about 4/3 of the JPEG. Keep uploads under ~450KB each.
+        for (let pass = 0; pass < 4 && data.length > 450000 * 1.37; pass += 1) {
+          q = Math.max(0.46, q - 0.1);
+          edge = Math.max(720, Math.round(edge * 0.85));
+          data = encode(edge, q);
+        }
+        resolve(data);
       } catch (err) {
         reject(err);
       }
@@ -332,7 +352,7 @@ function tabbar(active) {
     { id: 'messages', label: '訊息', badge: badges.messages, badgeLabel: `${badges.messages} 則未讀訊息` },
     { id: 'post', label: '刊登', post: true },
     { id: 'bargains', label: '議價', badge: badges.offers, badgeLabel: `${badges.offers} 筆待處理議價` },
-    { id: 'me', label: '我的' },
+    { id: 'me', label: '我的', badge: badges.notices, badgeLabel: `${badges.notices} 則新提醒` },
   ];
   return `
     <nav class="tabbar" aria-label="主導覽">
@@ -349,6 +369,18 @@ function tabbar(active) {
 }
 
 const TRUST_FOOTNOTE = '街坊之間的成交與評價，平台不鑑定、不代收款。';
+const SCAM_TIP = '建議面交，當面睇清楚先付款，唔好預先轉帳。平台唔託管貨款，亦唔鑑定真偽。';
+
+function scamTipHtml(extraClass = '') {
+  return `<p class="scam-tip ${extraClass}">${escapeHtml(SCAM_TIP)}</p>`;
+}
+
+function defaultMeetWhen() {
+  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  const next = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate() + 1, 15, 0));
+  const p = (n) => String(n).padStart(2, '0');
+  return `${next.getUTCFullYear()}-${p(next.getUTCMonth() + 1)}-${p(next.getUTCDate())}T15:00`;
+}
 
 function trustLines(trust, { quote = true } = {}) {
   if (!trust) return '';
@@ -375,16 +407,38 @@ function trustLines(trust, { quote = true } = {}) {
     </div>`;
 }
 
-function skeletonGrid(n = 6) {
-  return `<div class="grid" aria-busy="true" aria-label="載入中">${Array.from({ length: n }, () => `
+function skeletonCards(n = 6) {
+  return Array.from(
+    { length: n },
+    () => `
         <div class="card skeleton-card">
           <div class="thumb sk"></div>
           <div class="card-body">
             <div class="sk sk-line"></div>
             <div class="sk sk-line short"></div>
           </div>
-        </div>`).join('')}
-    </div>`;
+        </div>`
+  ).join('');
+}
+
+function skeletonGrid(n = 6) {
+  return `<div class="grid" aria-busy="true" aria-label="載入中">${skeletonCards(n)}</div>`;
+}
+
+function paintTabBadges() {
+  const badges = getBadges();
+  const spec = [
+    ['messages', badges.messages, `${badges.messages} 則未讀訊息`],
+    ['bargains', badges.offers, `${badges.offers} 筆待處理議價`],
+    ['me', badges.notices, `${badges.notices} 則新提醒`],
+  ];
+  for (const [id, count, label] of spec) {
+    const tab = document.querySelector(`.tab[data-go="${id}"] .ico`);
+    if (!tab) continue;
+    tab.querySelector('.tab-badge')?.remove();
+    const html = tabBadge(count, label);
+    if (html) tab.insertAdjacentHTML('beforeend', html);
+  }
 }
 
 function skeletonThreads(n = 5) {
@@ -704,20 +758,35 @@ async function renderHome(token = nextView(), options = {}) {
       </div>
     </div>`;
 
+  const HOME_PAGE = 12;
+  let feed = [];
+  let hasMore = false;
+  let total = 0;
+  let nextOffset = 0;
+  let loadingMore = false;
+
+  const feedHtml = () => {
+    if (!feed.length) return `<div class="empty">${emptyCopy}</div>`;
+    const more = hasMore
+      ? `<div class="home-more"><button class="btn ghost" type="button" id="home-more">載入更多</button></div>`
+      : '';
+    return `<div class="grid" id="home-grid">${feed.map((l) => listingCard(l)).join('')}</div>
+      <div class="grid home-pending" id="home-pending" hidden>${skeletonCards(2)}</div>
+      ${more}`;
+  };
+
   const paint = (view) => {
     let main = skeletonGrid();
     if (!view.loading) {
-      if (view.error && !view.list.length) {
+      if (view.error && !feed.length) {
         main = listErrorHtml('刊登載入失敗');
       } else {
+        const shown = Number.isFinite(view.total) ? view.total : feed.length;
         const meta = ctx.filtering
-          ? `<div class="filter-meta">${ctx.rangeInvalid ? '價錢範圍未成立' : `${view.list.length} 件符合`}</div>`
+          ? `<div class="filter-meta">${ctx.rangeInvalid ? '價錢範圍未成立' : `${shown} 件符合`}</div>`
           : '';
-        const retry = view.error && view.list.length ? listRetryBar() : '';
-        const grid = view.list.length
-          ? `<div class="grid">${view.list.map((l) => listingCard(l)).join('')}</div>`
-          : `<div class="empty">${emptyCopy}</div>`;
-        main = `${meta}${retry}${grid}`;
+        const retry = view.error && feed.length ? listRetryBar() : '';
+        main = `${meta}${retry}${feedHtml()}`;
       }
     }
     const focusId = document.activeElement?.id;
@@ -733,6 +802,7 @@ async function renderHome(token = nextView(), options = {}) {
       } catch (_) {}
     }
     bindHomeChrome();
+    if (!view.loading) bindFeed();
   };
 
   const scheduleHome = () => {
@@ -785,34 +855,101 @@ async function renderHome(token = nextView(), options = {}) {
     app.querySelector('#cats .chip.active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   }
 
+  const sameQuery = () => {
+    const latest = readHomeQuery();
+    return (
+      latest.q === ctx.q &&
+      latest.cat === ctx.cat &&
+      latest.minRaw === ctx.minRaw &&
+      latest.maxRaw === ctx.maxRaw
+    );
+  };
+
+  async function loadMore() {
+    if (!hasMore || loadingMore || !isView(token) || !sameQuery()) return;
+    loadingMore = true;
+    const pending = app.querySelector('#home-pending');
+    const moreBtn = app.querySelector('#home-more');
+    if (pending) pending.hidden = false;
+    if (moreBtn) moreBtn.disabled = true;
+    try {
+      const page = await fetchHomeListings({
+        q: ctx.q,
+        category: ctx.cat,
+        min: ctx.min,
+        max: ctx.max,
+        limit: HOME_PAGE,
+        offset: nextOffset,
+      });
+      if (!isView(token) || !sameQuery()) return;
+      const grid = app.querySelector('#home-grid');
+      if (!grid) return;
+      const known = new Set(feed.map((l) => l.id));
+      const fresh = page.listings.filter((l) => !known.has(l.id));
+      feed = feed.concat(fresh);
+      total = page.total;
+      nextOffset = page.nextOffset;
+      hasMore = page.hasMore && fresh.length > 0;
+      if (fresh.length) grid.insertAdjacentHTML('beforeend', fresh.map((l) => listingCard(l)).join(''));
+      if (!hasMore) moreBtn?.parentElement?.remove();
+    } catch (err) {
+      errToast(err, '載入更多失敗');
+    } finally {
+      loadingMore = false;
+      if (pending) pending.hidden = true;
+      if (moreBtn?.isConnected) moreBtn.disabled = false;
+    }
+  }
+
+  function bindFeed() {
+    app.querySelector('#home-more')?.addEventListener('click', () => {
+      loadMore();
+    });
+    const screen = app.querySelector('.screen');
+    screen?.addEventListener(
+      'scroll',
+      () => {
+        if (screen.scrollTop + screen.clientHeight >= screen.scrollHeight - 280) loadMore();
+      },
+      { passive: true }
+    );
+  }
+
   const willFetch = getState().online && !ctx.rangeInvalid;
   const interactive = !options.forceSkeleton && Boolean(document.querySelector('.home-screen #search'));
   if (!interactive && willFetch && isView(token)) {
     paint({ loading: true, list: [], error: false });
   }
 
-  let list = [];
   let error = false;
   if (willFetch) {
     try {
-      list = await fetchHomeListings({ q: ctx.q, category: ctx.cat, min: ctx.min, max: ctx.max });
+      const page = await fetchHomeListings({
+        q: ctx.q,
+        category: ctx.cat,
+        min: ctx.min,
+        max: ctx.max,
+        limit: HOME_PAGE,
+        offset: 0,
+      });
+      feed = page.listings;
+      total = page.total;
+      hasMore = page.hasMore;
+      nextOffset = page.nextOffset;
     } catch (err) {
       error = true;
       errToast(err, '載入刊登失敗');
-      list = getState().listings.filter((l) =>
+      feed = getState().listings.filter((l) =>
         listingMatches(l, { q: ctx.q, category: ctx.cat, min: ctx.min, max: ctx.max })
       );
+      total = feed.length;
+      hasMore = false;
+      nextOffset = feed.length;
     }
   }
   if (!isView(token)) return;
-  const latest = readHomeQuery();
-  const drifted =
-    latest.q !== ctx.q ||
-    latest.cat !== ctx.cat ||
-    latest.minRaw !== ctx.minRaw ||
-    latest.maxRaw !== ctx.maxRaw;
-  if (drifted) return;
-  paint({ loading: false, list, error });
+  if (!sameQuery()) return;
+  paint({ loading: false, error, total });
 }
 
 const uiGallery = { id: '', index: 0 };
@@ -993,6 +1130,7 @@ function openOfferSheet(l) {
       ${offerComposerHtml(l, { formId: 'offer-sheet-form', submitInForm: true })}
       <button type="button" class="offer-footnote" id="offer-history">查看出價紀錄</button>
       <p class="trust-note offer-trust-note">送出後先顯示待回覆，等賣家接受、拒絕或回價。平台不代收款、不代鑑定。</p>
+      ${scamTipHtml('offer-scam-tip')}
     </div>`;
   document.body.appendChild(overlay);
   document.body.classList.add('offer-open');
@@ -1111,7 +1249,7 @@ function offerStatusView(offer, role) {
         ? amount
         : null;
   if (status === 'accepted') {
-    return { status, label: '已接受', detail: `議定 ${money(agreed)}`, sub: '請自行約交收 · 平台不代收款' };
+    return { status, label: '已接受', detail: `議定 ${money(agreed)}`, sub: '見面安排在下面 · 平台不代收款' };
   }
   if (status === 'rejected') {
     return { status, label: '已拒絕', detail: '這筆未談成', sub: `出價 ${money(amount)}` };
@@ -1219,7 +1357,61 @@ function offerStatusHtml(offer, { role, showThreadLink = true, showButtons = tru
       ${place}
       ${actions.length ? `<div class="offer-actions">${actions.join('')}</div>` : ''}
       ${counterForm}
+      ${handoffCardHtml(offer, role)}
     </div>`;
+}
+
+function handoffCardHtml(offer, role) {
+  if (!offer?.canHandoff || (role !== 'buyer' && role !== 'seller')) return '';
+  const h = offer.handoff;
+  const meId = getState().me?.id || '';
+  const mineOk = h ? (role === 'buyer' ? h.buyerOk : h.sellerOk) : false;
+  const placeId = h?.placeId || 'senado';
+  const whenValue = h?.when || defaultMeetWhen();
+  let statusLine = '尚未約定。選一個公眾地標，或填自訂地點。對方確認後才算數。';
+  if (h?.status === 'confirmed') statusLine = '雙方已確認。若要更改，對方需要再確認一次。';
+  else if (h && h.proposedBy === meId) statusLine = '你已提議，等對方確認。';
+  else if (h) statusLine = '對方提議了這個時間地點。你可以確認，或改一個。';
+  const summary = h
+    ? `<div class="handoff-summary"><strong>${escapeHtml(h.whenLabel || h.when || '')}</strong><span>${escapeHtml(h.place || '')}</span>${
+        h.note ? `<span class="meta">${escapeHtml(h.note)}</span>` : ''
+      }</div>`
+    : '';
+  const confirmBtn =
+    h && !mineOk
+      ? `<button class="btn ghost" type="button" data-handoff-confirm>確認這個安排</button>`
+      : '';
+  return `
+    <form class="handoff-card" data-handoff-offer="${escapeAttr(offer.id)}">
+      <div class="handoff-kicker">見面時間／地點</div>
+      <p class="handoff-status">${escapeHtml(statusLine)}</p>
+      ${summary}
+      <div class="chips tight handoff-places">
+        ${MEET_PLACES.map(
+          (p) =>
+            `<button type="button" class="chip ${p.id === placeId ? 'active' : ''}" data-place="${escapeAttr(p.id)}">${escapeHtml(p.label)}</button>`
+        ).join('')}
+      </div>
+      <input type="hidden" name="placeId" value="${escapeAttr(placeId)}" />
+      <div class="field handoff-custom" ${placeId === 'custom' ? '' : 'hidden'}>
+        <label>自訂地點</label>
+        <input name="customPlace" maxlength="40" lang="zh-Hant" autocomplete="off" placeholder="公眾地方，例如某個路口" value="${escapeAttr(h?.customPlace || '')}" />
+        <p class="photo-hint">請選公眾地方，唔好約在住所。</p>
+      </div>
+      <div class="field">
+        <label for="handoff-when-${escapeAttr(offer.id)}">見面時間（澳門）</label>
+        <input id="handoff-when-${escapeAttr(offer.id)}" name="when" type="datetime-local" required value="${escapeAttr(whenValue)}" />
+      </div>
+      <div class="field">
+        <label>一句補充（選填）</label>
+        <input name="note" maxlength="80" lang="zh-Hant" autocomplete="off" placeholder="例如：我會穿黑衫" value="${escapeAttr(h?.note || '')}" />
+      </div>
+      <div class="handoff-actions">
+        <button class="btn primary" type="submit">${h ? '更新見面安排' : '提議這個安排'}</button>
+        ${confirmBtn}
+      </div>
+      ${scamTipHtml()}
+    </form>`;
 }
 
 function offerActionToast(role, action) {
@@ -1291,6 +1483,63 @@ function bindOfferStatus(root, { onDone } = {}) {
 
   root.querySelectorAll('.actionbar [data-offer-action="accept"], .actionbar [data-offer-action="reject"]').forEach((btn) => {
     btn.addEventListener('click', () => run(btn, { action: btn.dataset.offerAction }));
+  });
+
+  root.querySelectorAll('.handoff-card').forEach((form) => {
+    const placeInput = form.querySelector('[name="placeId"]');
+    const customWrap = form.querySelector('.handoff-custom');
+    const customInput = form.querySelector('[name="customPlace"]');
+    const syncPlace = () => {
+      const customOn = placeInput?.value === 'custom';
+      if (customWrap) customWrap.hidden = !customOn;
+      if (customInput) customInput.required = customOn;
+    };
+    form.querySelectorAll('[data-place]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        form.querySelectorAll('[data-place]').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        if (placeInput) placeInput.value = btn.dataset.place;
+        syncPlace();
+      });
+    });
+    syncPlace();
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const offerId = form.dataset.handoffOffer;
+      const fd = new FormData(form);
+      const buttons = form.querySelectorAll('button');
+      buttons.forEach((btn) => {
+        btn.disabled = true;
+      });
+      try {
+        await saveHandoff(offerId, {
+          placeId: String(fd.get('placeId') || ''),
+          customPlace: String(fd.get('customPlace') || '').trim(),
+          when: String(fd.get('when') || ''),
+          note: String(fd.get('note') || '').trim(),
+        });
+        toast('已送出見面提議');
+        if (onDone) await onDone();
+      } catch (err) {
+        buttons.forEach((btn) => {
+          btn.disabled = false;
+        });
+        errToast(err, '未能送出見面安排');
+      }
+    });
+    form.querySelector('[data-handoff-confirm]')?.addEventListener('click', async () => {
+      const offerId = form.dataset.handoffOffer;
+      const button = form.querySelector('[data-handoff-confirm]');
+      if (button) button.disabled = true;
+      try {
+        await confirmHandoff(offerId);
+        toast('已確認見面安排');
+        if (onDone) await onDone();
+      } catch (err) {
+        if (button) button.disabled = false;
+        errToast(err, '未能確認');
+      }
+    });
   });
 }
 
@@ -1579,6 +1828,7 @@ async function renderBargain(id, token = nextView()) {
       </div>
     </div>
     <div class="bargain-trust">${trustHtml(l)}</div>
+    ${scamTipHtml('bargain-tip')}
     ${offerComposerHtml(l, { formId: 'offer-form', submitInForm: false })}
     <div class="offer-list">
       <h3>出價紀錄</h3>
@@ -1684,6 +1934,16 @@ function renderPost(token = nextView()) {
         input.setAttribute('capture', 'environment');
       });
     }
+    const hintText = app.querySelector('#photo-hint-text');
+    if (hintText) {
+      const count = photos.filter(Boolean).length;
+      hintText.textContent =
+        count === 0
+          ? '至少一張相片。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。'
+          : count === 1
+            ? '已有 1 張。再加側面或瑕疵會更清楚，仍然可以繼續。'
+            : `已有 ${count} 張。多角度會幫買家睇清楚。`;
+    }
   };
 
   const bindPhotos = () => {
@@ -1732,7 +1992,8 @@ function renderPost(token = nextView()) {
           try {
             photos[targets[i]] = await compressImageFile(chosen[i]);
             added += 1;
-          } catch {
+          } catch (err) {
+            if (err?.message === 'TOO_LARGE') toast('圖片太大，請改選一張');
             /* keep going so one bad file does not drop the rest */
           }
         }
@@ -1772,6 +2033,10 @@ function renderPost(token = nextView()) {
   const validate = (current) => {
     capture();
     if (current === 0) {
+      if (!photos.some(Boolean)) {
+        toast('請至少加入一張相片');
+        return false;
+      }
       const title = draft.title.replace(/[\r\n]+/g, ' ').trim();
       draft.title = title;
       if (!title) {
@@ -1855,6 +2120,10 @@ function renderPost(token = nextView()) {
       return;
     }
     capture();
+    if (!photos.some(Boolean)) {
+      toast('請至少加入一張相片');
+      return;
+    }
     if (!draft.title.trim() || !draft.description.trim() || !(Number(draft.price) > 0)) {
       toast('請先填好標題、狀況與價錢');
       return;
@@ -1909,9 +2178,9 @@ function renderPost(token = nextView()) {
     if (step === 0) {
       fields = `
         <div class="field" id="photo-field">
-          <label>相片（最多 3 張）</label>
+          <label>相片（至少 1 張，最多 3 張）</label>
           <div class="photo-row" id="photo-row"></div>
-          <p class="photo-hint">加圖從相簿選取，可多選。拍照會開啟相機。未有相片也可以繼續。</p>
+          <p class="photo-hint" id="photo-hint-text">至少一張相片。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。</p>
           <div class="photo-actions" id="photo-actions"></div>
         </div>
         <div class="field">
@@ -1922,10 +2191,13 @@ function renderPost(token = nextView()) {
       fields = `
         <div class="field">
           <label>狀況</label>
-          <div class="chips tight">
-            ${CONDITIONS.map(
+          <div class="condition-list">
+            ${CONDITION_OPTIONS.map(
               (c) =>
-                `<button type="button" class="chip ${c === draft.condition ? 'active' : ''}" data-condition="${escapeAttr(c)}">${escapeHtml(c)}</button>`
+                `<button type="button" class="condition-opt ${c.value === draft.condition ? 'active' : ''}" data-condition="${escapeAttr(c.value)}">
+                  <span class="condition-label">${escapeHtml(c.label)}</span>
+                  <span class="condition-hint">${escapeHtml(c.hint)}</span>
+                </button>`
             ).join('')}
           </div>
           <p class="photo-hint">成色由你自己標示，買家會看到。平台不提供鑑定。</p>
@@ -1975,7 +2247,7 @@ function renderPost(token = nextView()) {
         ? `<div class="photo-row summary-photos">${filled
             .map((src) => `<div class="photo-slot filled has-img"><img src="${escapeAttr(src)}" alt="" /></div>`)
             .join('')}</div>`
-        : '<p class="photo-hint">未加相片</p>';
+        : '<p class="photo-hint">未加相片。請返回加上至少一張。</p>';
       fields = `
         ${thumbs}
         <div class="summary-line"><span>標題</span><span>${escapeHtml(draft.title)}</span></div>
@@ -2052,10 +2324,10 @@ function renderPost(token = nextView()) {
 async function renderMessages(token = nextView()) {
   if (!requireAuth('messages')) return;
   const header = `<header class="topbar"><h1>訊息</h1></header>`;
-  app.innerHTML = shell(`${header}${skeletonThreads()}`, { tab: 'messages' });
+  app.innerHTML = shell(`${header}${scamTipHtml('messages-tip')}${skeletonThreads()}`, { tab: 'messages' });
   let error = null;
   try {
-    await refreshThreads();
+    await Promise.all([refreshThreads(), refreshNotices()]);
   } catch (err) {
     error = err;
     errToast(err, '載入訊息失敗');
@@ -2080,12 +2352,32 @@ async function renderMessages(token = nextView()) {
           </button>`;
     })
     .join('');
+  const unreadNotices = (getState().notices || []).filter((n) => !n.read).slice(0, 3);
+  const noticeStrip = unreadNotices
+    .map(
+      (n) =>
+        `<button class="notice-strip" type="button" data-notice="${escapeAttr(n.id)}" data-href="${escapeAttr(n.href || '')}">${escapeHtml(n.body)}</button>`
+    )
+    .join('');
   const body = error && !threads.length
     ? listErrorHtml('訊息載入失敗')
     : threads.length
-      ? `${error ? listRetryBar() : ''}${list}`
-      : `<div class="empty">還沒有訊息<br/>去議價一筆商品吧</div>`;
-  app.innerHTML = shell(`${header}${body}`, { tab: 'messages' });
+      ? `${error ? listRetryBar() : ''}${noticeStrip}${list}`
+      : `${noticeStrip}<div class="empty">還沒有訊息<br/>去議價一筆商品吧</div>`;
+  app.innerHTML = shell(`${header}${scamTipHtml('messages-tip')}${body}`, { tab: 'messages' });
+  app.querySelectorAll('[data-notice]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-notice');
+      const href = btn.getAttribute('data-href');
+      try {
+        await markNoticesRead(id ? [id] : []);
+      } catch {
+        /* still open the thread */
+      }
+      paintTabBadges();
+      if (href) go(href);
+    });
+  });
   app.querySelector('#retry-load')?.addEventListener('click', () => renderMessages());
 }
 
@@ -2113,6 +2405,12 @@ async function renderChat(threadId, token = nextView()) {
     return;
   }
   if (!isView(token)) return;
+  const related = (getState().notices || []).filter((n) => !n.read && n.href === `chat/${threadId}`);
+  if (related.length) {
+    markNoticesRead(related.map((n) => n.id))
+      .then(() => paintTabBadges())
+      .catch(() => {});
+  }
   if (!thread) {
     go('messages');
     return;
@@ -2155,6 +2453,7 @@ async function renderChat(threadId, token = nextView()) {
     l && !isSold(l) && l.sellerId !== meId && offer?.status !== 'accepted'
       ? `<button class="btn ghost chat-bargain-link" type="button" data-go="bargain/${l.id}">出價</button>`
       : '';
+  const chatTip = offer?.canHandoff ? '' : scamTipHtml('chat-tip');
 
   const content = `
     <header class="topbar">
@@ -2164,6 +2463,7 @@ async function renderChat(threadId, token = nextView()) {
     </header>
     ${strip}
     ${statusCard}
+    ${chatTip}
     <div class="chat-log" id="chat-log">${bubbles}</div>
     <form class="chat-composer" id="chat-form">
       <input id="chat-input" type="text" lang="zh-Hant" inputmode="text" autocomplete="off" enterkeyhint="send" placeholder="輸入訊息…" maxlength="500" />
@@ -2570,7 +2870,12 @@ async function renderMe(token = nextView()) {
       ${menuGo('mine', '我的刊登', active)}
       ${menuGo('sold', '已售', soldCount)}
       ${menuGo('saved', '收藏', saved)}
-      ${menuGo('bargains', '我的議價')}`
+      ${menuGo('bargains', '我的議價')}
+      <button class="menu-row" type="button" id="notify-toggle">
+        <span>訊息提醒</span>
+        <span class="theme-state" id="notify-state">${escapeHtml(notifyStatusText())}</span>
+      </button>
+      <p class="photo-hint notify-note">開啟後，新訊息同出價會在應用內提醒。關掉 App 之後的商店推播需要 APNs／FCM，目前未接入，所以這裡先用紅點同本機通知。</p>`
           : `
       <button class="menu-row" type="button" data-go="login"><span>登入</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" data-go="register"><span>註冊</span><span class="arrow">→</span></button>`
@@ -2591,6 +2896,20 @@ async function renderMe(token = nextView()) {
       }
     </div>`;
   app.innerHTML = shell(content, { tab: 'me' });
+  app.querySelector('#notify-toggle')?.addEventListener('click', async () => {
+    const stateEl = app.querySelector('#notify-state');
+    if (stateEl) stateEl.textContent = '開啟中…';
+    try {
+      const result = await enableNotifications();
+      if (stateEl) stateEl.textContent = result.label;
+      if (result.permission === 'denied') toast('瀏覽器封鎖了通知，仍會顯示紅點');
+      else if (result.local || result.permission === 'granted') toast('已開啟提醒。商店推播尚未接入');
+      else toast('會用應用內紅點提醒');
+    } catch (err) {
+      if (stateEl) stateEl.textContent = notifyStatusText();
+      errToast(err, '未能開啟提醒');
+    }
+  });
   app.querySelector('#theme-toggle')?.addEventListener('click', () => {
     toggleTheme();
     renderMe();
@@ -2726,8 +3045,8 @@ function renderProfile() {
       picked = await compressImageFile(file, 640, 0.8);
       removed = false;
       toast('已加入頭像');
-    } catch {
-      toast('無法讀取圖片');
+    } catch (err) {
+      toast(err?.message === 'TOO_LARGE' ? '圖片太大，請改選一張' : '無法讀取圖片');
     } finally {
       photoBusy = false;
       paintAvatar();
@@ -2880,6 +3199,25 @@ bootstrap()
     if (!r.online) {
       toast('無法連接後端，請先執行 npm run server');
     }
+    watchNotices({
+      onNotice: (notice) => {
+        const { parts } = parseHash();
+        if (parts[0] === 'chat' && notice.href === `chat/${parts[1]}`) {
+          const input = document.querySelector('#chat-input');
+          if (input && document.activeElement === input && input.value) {
+            paintTabBadges();
+            return;
+          }
+          renderChat(parts[1]);
+          return;
+        }
+        toast(notice.body || notice.title || '有新訊息');
+        paintTabBadges();
+        refreshBadges()
+          .then(() => paintTabBadges())
+          .catch(() => {});
+      },
+    });
     if (!location.hash) location.hash = '#/home';
     return route();
   })

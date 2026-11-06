@@ -102,6 +102,8 @@ export const ListingsApi = {
     if (params.category) qs.set('category', params.category);
     if (params.min != null && params.min !== '') qs.set('min', String(params.min));
     if (params.max != null && params.max !== '') qs.set('max', String(params.max));
+    if (params.limit != null && params.limit !== '') qs.set('limit', String(params.limit));
+    if (params.offset != null && params.offset !== '') qs.set('offset', String(params.offset));
     const q = qs.toString();
     return api(`/api/listings${q ? `?${q}` : ''}`, { auth: 'if' });
   },
@@ -148,6 +150,20 @@ export const OffersApi = {
   incoming: () => api('/api/offers/incoming', { auth: true }),
   respond: (id, payload) =>
     api(`/api/offers/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload, auth: true }),
+  saveHandoff: (id, payload) =>
+    api(`/api/offers/${encodeURIComponent(id)}/handoff`, { method: 'PUT', body: payload, auth: true }),
+  confirmHandoff: (id) =>
+    api(`/api/offers/${encodeURIComponent(id)}/handoff/confirm`, { method: 'POST', auth: true }),
+};
+
+export const NoticesApi = {
+  list: () => api('/api/notifications', { auth: true }),
+  read: (ids) => api('/api/notifications/read', { method: 'POST', body: { ids: ids || [] }, auth: true }),
+  pushStatus: () => api('/api/push/status', { auth: true }),
+};
+
+export const DevicesApi = {
+  register: (payload) => api('/api/devices', { method: 'POST', body: payload, auth: true }),
 };
 
 export const StatsApi = {

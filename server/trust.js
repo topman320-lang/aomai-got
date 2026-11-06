@@ -18,6 +18,7 @@ const FACTOR = {
   幾乎全新: 0.85,
   良好: 0.7,
   有使用痕跡: 0.5,
+  外觀較舊: 0.45,
 };
 
 function median(nums) {

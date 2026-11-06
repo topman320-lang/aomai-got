@@ -2344,3 +2344,126 @@ button.seller-card:active {
   height: 40px;
   flex: none;
 }
+
+.grid[hidden],
+.handoff-custom[hidden] {
+  display: none;
+}
+
+.home-more {
+  padding: 0 16px 20px;
+}
+
+.home-more .btn {
+  width: 100%;
+  flex: none;
+}
+
+.scam-tip {
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.handoff-card .scam-tip {
+  margin: 10px 0 0;
+}
+
+.handoff-card {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.handoff-kicker {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.handoff-status {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.handoff-summary {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 15px;
+}
+
+.handoff-places {
+  margin: 10px 0;
+}
+
+.handoff-card .field {
+  margin-top: 10px;
+}
+
+.handoff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.handoff-actions .btn {
+  flex: 1 1 140px;
+  height: 40px;
+}
+
+.condition-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.condition-opt {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 10px 12px;
+}
+
+.condition-opt.active {
+  border-color: var(--ink);
+  background: var(--soft);
+}
+
+.condition-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.condition-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.notice-strip {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 12px 16px 0;
+  text-align: left;
+  border: 1px solid var(--ink);
+  background: var(--bg);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.notify-note {
+  padding: 0 16px 8px;
+}

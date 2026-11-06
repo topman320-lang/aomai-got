@@ -10,18 +10,20 @@
     "build:mobile": "npm run build && npx cap sync",
     "open:ios": "npx cap open ios",
     "open:android": "npx cap open android",
-    "test": "node --test server/trust.test.js",
+    "test": "node --test server/trust.test.js server/handoff.test.js server/paging.test.js",
     "server": "npm --prefix server start",
     "server:install": "npm --prefix server install"
   },
   "devDependencies": {
     "vite": "^8.3.6"
   },
-  "description": "\u6fb3\u8ce3 GOT \u2014 Macau neighborly secondhand bargaining marketplace prototype",
+  "description": "澳賣 GOT — Macau neighborly secondhand bargaining marketplace prototype",
   "dependencies": {
     "@capacitor/android": "^8.6.0",
     "@capacitor/cli": "^8.6.0",
     "@capacitor/core": "^8.6.0",
-    "@capacitor/ios": "^8.6.0"
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/push-notifications": "^8.1.3"
   }
 }

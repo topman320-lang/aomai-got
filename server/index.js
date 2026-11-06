@@ -29,6 +29,9 @@ import {
   reviewAccess,
   trustSummary,
 } from './trust.js';
+import { buildProposal, confirmProposal, findHandoff, handoffAccess, presentHandoff } from './handoff.js';
+import { addNotice, markNoticesRead, noticesFor, remotePushHook, unreadNotices } from './notices.js';
+import { pageWindow } from './paging.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -180,10 +183,12 @@ function offerStatusOf(offer) {
   return 'pending';
 }
 
-function offerDto(o, db) {
+function offerDto(o, db, viewerId = '') {
   const from = db.users.find((u) => u.id === o.fromId);
   const thread = db.threads.find((t) => t.listingId === o.listingId && t.buyerId === o.fromId);
+  const listing = db.listings.find((l) => l.id === o.listingId);
   const status = offerStatusOf(o);
+  const access = handoffAccess({ ...o, status }, listing, viewerId);
   return {
     id: o.id,
     listingId: o.listingId,
@@ -199,7 +204,29 @@ function offerDto(o, db) {
     threadId: thread?.id || null,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt || o.createdAt,
+    canHandoff: access.canHandoff,
+    handoff: access.canHandoff ? presentHandoff(findHandoff(db, o.id)) : null,
   };
+}
+
+function rememberHandoff(db, row) {
+  if (!Array.isArray(db.handoffs)) db.handoffs = [];
+  db.handoffs = [row, ...db.handoffs.filter((h) => h.offerId !== row.offerId && h.id !== row.id)];
+}
+
+function notifyUser(db, { userId, kind, title, body, href, refId }) {
+  const row = addNotice(db, {
+    id: id('n-'),
+    userId,
+    kind,
+    title,
+    body,
+    href,
+    refId,
+    createdAt: Date.now(),
+  });
+  if (row) remotePushHook(db, userId);
+  return row;
 }
 
 function latestOffer(db, listingId, buyerId) {
@@ -246,7 +273,7 @@ function threadDto(thread, userId, db) {
       };
     }),
     listing: listing ? listingDto(listing, db, PUBLIC_BASE, userId) : null,
-    offer: offer ? offerDto(offer, db) : null,
+    offer: offer ? offerDto(offer, db, userId) : null,
   };
 }
 
@@ -318,11 +345,13 @@ app.get('/privacy', (_req, res) => {
   <ul>
     <li>帳號資料：使用者名稱、個人簡介、頭像、電郵、密碼（加密儲存）。</li>
     <li>刊登與交易相關內容：商品說明、照片、出價、交收意願、聊天訊息、街坊短評。</li>
+    <li>見面安排：雙方自行填寫的見面時間、地點與備註。平台不代為保管物品或貨款。</li>
+    <li>通知：若你開啟提醒，我們會保存裝置權杖，以便日後發送訊息與出價通知。未設定推播憑證時，提醒只在你開啟應用時於應用內顯示。</li>
     <li>裝置與技術資料：基本日誌（例如 IP、瀏覽器類型），用於維運與防止濫用。</li>
   </ul>
   <h2>二、用途</h2>
   <ul>
-    <li>提供註冊登入、刊登、議價、訊息等核心功能。</li>
+    <li>提供註冊登入、刊登、議價、訊息、見面安排與你開啟的提醒。</li>
     <li>維護平台安全、防詐騙與不當內容。</li>
     <li>依法律要求配合主管機關。</li>
   </ul>
@@ -523,7 +552,16 @@ app.get('/api/listings', optionalAuth, (req, res) => {
     });
   }
   const viewerId = req.user?.id || '';
-  res.json({ listings: list.map((l) => listingDto(l, db, PUBLIC_BASE, viewerId)) });
+  const paged = pageWindow(list, req.query);
+  if (paged.error) return res.status(400).json({ error: 'INVALID_INPUT', message: '頁數不正確' });
+  res.json({
+    listings: paged.items.map((l) => listingDto(l, db, PUBLIC_BASE, viewerId)),
+    total: paged.total,
+    offset: paged.offset,
+    limit: paged.limit,
+    hasMore: paged.hasMore,
+    nextOffset: paged.nextOffset,
+  });
 });
 
 app.get('/api/listings/:id', optionalAuth, (req, res) => {
@@ -545,6 +583,9 @@ app.post('/api/listings', auth, (req, res) => {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '請填寫標題、價錢與描述' });
   }
   const photos = savePhotos(req.body?.photos || [], PUBLIC_BASE);
+  if (!photos.length) {
+    return res.status(400).json({ error: 'PHOTO_REQUIRED', message: '請至少上傳一張相片' });
+  }
   const db = loadDb();
   const listing = {
     id: id('l-'),
@@ -678,10 +719,18 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   const lines = [`${lead} MOP ${offer.amount} · ${meetup}`];
   if (message) lines.push(message);
   pushMessage(db, thread, req.user.id, lines.join('\n'));
+  notifyUser(db, {
+    userId: listing.sellerId,
+    kind: 'offer',
+    title: '新出價',
+    body: `${req.user.name} ${lead} MOP ${offer.amount}`,
+    href: `chat/${thread.id}`,
+    refId: offer.id,
+  });
   touch(db, req.user.id);
   persist();
   res.status(201).json({
-    offer: offerDto(offer, db),
+    offer: offerDto(offer, db, req.user.id),
     thread: threadDto(thread, req.user.id, db),
     updated: lead !== '出價',
   });
@@ -692,7 +741,7 @@ app.get('/api/listings/:id/offers', optionalAuth, (req, res) => {
   const offers = db.offers
     .filter((o) => o.listingId === req.params.id)
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
-    .map((o) => offerDto(o, db));
+    .map((o) => offerDto(o, db, req.user?.id || ''));
   res.json({ offers });
 });
 
@@ -701,7 +750,7 @@ app.get('/api/offers/mine', auth, (req, res) => {
   const offers = db.offers
     .filter((o) => o.fromId === req.user.id)
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
-    .map((o) => offerDto(o, db));
+    .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
 });
 
@@ -711,7 +760,7 @@ app.get('/api/offers/incoming', auth, (req, res) => {
   const offers = db.offers
     .filter((o) => mine.has(o.listingId))
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
-    .map((o) => offerDto(o, db));
+    .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
 });
 
@@ -778,10 +827,107 @@ app.patch('/api/offers/:id', auth, (req, res) => {
 
   offer.updatedAt = nowTs;
   bumpOffer(db, offer);
+  const peerId = req.user.id === offer.fromId ? listing.sellerId : offer.fromId;
+  const noticeBody =
+    action === 'accept'
+      ? `${req.user.name} 接受了出價`
+      : action === 'reject'
+        ? `${req.user.name} 未接受這筆出價`
+        : `${req.user.name} 回價 MOP ${offer.counterAmount}`;
+  notifyUser(db, {
+    userId: peerId,
+    kind: 'offer',
+    title: '議價有更新',
+    body: noticeBody,
+    href: `chat/${thread.id}`,
+    refId: offer.id,
+  });
   touch(db, req.user.id);
   persist();
   res.json({
-    offer: offerDto(offer, db),
+    offer: offerDto(offer, db, req.user.id),
+    thread: threadDto(thread, req.user.id, db),
+  });
+});
+
+function handoffParties(offer, listing) {
+  return { buyerId: offer.fromId, sellerId: listing.sellerId };
+}
+
+app.put('/api/offers/:id/handoff', auth, (req, res) => {
+  const db = loadDb();
+  const offer = db.offers.find((o) => o.id === req.params.id);
+  if (!offer) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這筆出價' });
+  const listing = db.listings.find((l) => l.id === offer.listingId);
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  const nowTs = Date.now();
+  const result = buildProposal({
+    existing: findHandoff(db, offer.id),
+    offer,
+    listing,
+    userId: req.user.id,
+    placeId: req.body?.placeId,
+    customPlace: req.body?.customPlace,
+    when: req.body?.when,
+    note: req.body?.note,
+    now: nowTs,
+    id: id('h-'),
+  });
+  if (result.error) return res.status(400).json({ error: 'INVALID_INPUT', message: result.error });
+  rememberHandoff(db, result.handoff);
+  const thread = ensureThread(db, listing, offer.fromId);
+  const verb = result.changed ? '提議見面' : '更新見面';
+  pushMessage(db, thread, req.user.id, `${verb}：${result.summary}`);
+  const parties = handoffParties(offer, listing);
+  const peerId = req.user.id === parties.sellerId ? parties.buyerId : parties.sellerId;
+  notifyUser(db, {
+    userId: peerId,
+    kind: 'handoff',
+    title: '見面安排',
+    body: `${req.user.name} ${verb}：${result.summary}`,
+    href: `chat/${thread.id}`,
+    refId: offer.id,
+  });
+  touch(db, req.user.id);
+  persist();
+  res.json({
+    handoff: presentHandoff(result.handoff),
+    offer: offerDto(offer, db, req.user.id),
+    thread: threadDto(thread, req.user.id, db),
+  });
+});
+
+app.post('/api/offers/:id/handoff/confirm', auth, (req, res) => {
+  const db = loadDb();
+  const offer = db.offers.find((o) => o.id === req.params.id);
+  if (!offer) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這筆出價' });
+  const listing = db.listings.find((l) => l.id === offer.listingId);
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  const nowTs = Date.now();
+  const result = confirmProposal(findHandoff(db, offer.id), offer, listing, req.user.id, nowTs);
+  if (result.error) return res.status(400).json({ error: 'INVALID_INPUT', message: result.error });
+  rememberHandoff(db, result.handoff);
+  const thread = ensureThread(db, listing, offer.fromId);
+  if (result.became) {
+    const summary = presentHandoff(result.handoff);
+    const line = `已確認見面：${summary.whenLabel} · ${summary.place}`;
+    pushMessage(db, thread, req.user.id, line);
+    const parties = handoffParties(offer, listing);
+    const peerId = req.user.id === parties.sellerId ? parties.buyerId : parties.sellerId;
+    notifyUser(db, {
+      userId: peerId,
+      kind: 'handoff',
+      title: '見面已確認',
+      body: line,
+      href: `chat/${thread.id}`,
+      refId: offer.id,
+    });
+  }
+  touch(db, req.user.id);
+  persist();
+  res.json({
+    handoff: presentHandoff(result.handoff),
+    offer: offerDto(offer, db, req.user.id),
     thread: threadDto(thread, req.user.id, db),
   });
 });
@@ -820,6 +966,15 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'INVALID_INPUT' });
   const msg = pushMessage(db, thread, req.user.id, text);
+  const peerId = req.user.id === thread.buyerId ? thread.sellerId : thread.buyerId;
+  notifyUser(db, {
+    userId: peerId,
+    kind: 'message',
+    title: req.user.name || '新訊息',
+    body: text.split('\n')[0],
+    href: `chat/${thread.id}`,
+    refId: msg.id,
+  });
   touch(db, req.user.id);
   persist();
   res.status(201).json({
@@ -835,7 +990,62 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
 });
 
 app.get('/api/badges', auth, (req, res) => {
-  res.json(badgeCountsFor(loadDb(), req.user.id));
+  const db = loadDb();
+  res.json({ ...badgeCountsFor(db, req.user.id), notices: unreadNotices(db, req.user.id) });
+});
+
+app.get('/api/notifications', auth, (req, res) => {
+  const db = loadDb();
+  res.json({ notices: noticesFor(db, req.user.id), unread: unreadNotices(db, req.user.id) });
+});
+
+app.post('/api/notifications/read', auth, (req, res) => {
+  const db = loadDb();
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  markNoticesRead(db, req.user.id, ids);
+  persist();
+  res.json({ notices: noticesFor(db, req.user.id), unread: unreadNotices(db, req.user.id) });
+});
+
+app.get('/api/push/status', auth, (req, res) => {
+  const db = loadDb();
+  const devices = (db.devices || []).filter((d) => d.userId === req.user.id).length;
+  res.json({
+    remotePush: false,
+    devices,
+    reason: '需要 Apple APNs 與 Google FCM 憑證。未設定時只用應用內紅點同本機通知。',
+  });
+});
+
+app.post('/api/devices', auth, (req, res) => {
+  const token = String(req.body?.token || '').trim();
+  const platform = String(req.body?.platform || '').trim();
+  if (!token || token.length > 4096) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '裝置權杖不正確' });
+  }
+  if (!['ios', 'android', 'web'].includes(platform)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '平台不正確' });
+  }
+  const db = loadDb();
+  if (!Array.isArray(db.devices)) db.devices = [];
+  const nowTs = Date.now();
+  const existing = db.devices.find((d) => d.userId === req.user.id && d.token === token);
+  if (existing) {
+    existing.platform = platform;
+    existing.updatedAt = nowTs;
+  } else {
+    db.devices.push({
+      id: id('d-'),
+      userId: req.user.id,
+      token,
+      platform,
+      createdAt: nowTs,
+      updatedAt: nowTs,
+    });
+  }
+  touch(db, req.user.id);
+  persist();
+  res.json({ ok: true, stored: true, remotePush: false });
 });
 
 app.get('/api/price-hint', (req, res) => {
