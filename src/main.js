@@ -189,7 +189,7 @@ function getTheme() {
 
 function brandLogoSrc(variant = 'auto') {
   const theme = variant === 'auto' ? getTheme() : variant;
-  return theme === 'dark' ? '/brand/logo-dark.jpg?v=2' : '/brand/logo-light.jpg?v=2';
+  return theme === 'dark' ? '/brand/logo-dark.jpg?v=3' : '/brand/logo-light.jpg?v=3';
 }
 
 function applyTheme(theme) {
