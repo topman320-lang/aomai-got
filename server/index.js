@@ -11,12 +11,15 @@ import {
   loadDb,
   persist,
   isPhotoAvatar,
+  normalizeStoredUploads,
   pickEmoji,
   pickTone,
   presentAvatar,
+  publicBaseFromRequest,
   publicUser,
   saveAvatarDataUrl,
   savePhotos,
+  uploadPath,
 } from './db.js';
 import { listingDto, normalizeHandover, seedIfEmpty } from './seed.js';
 import {
@@ -36,15 +39,22 @@ import { pageWindow } from './paging.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
 const JWT_SECRET = process.env.JWT_SECRET || 'aomai-got-dev-secret-change-me';
-const PUBLIC_BASE = process.env.PUBLIC_BASE || `http://127.0.0.1:${PORT}`;
 
 seedIfEmpty();
 {
   const seeded = loadDb();
-  if (backfillDeals(seeded)) persist();
+  let changed = false;
+  if (backfillDeals(seeded)) changed = true;
+  if (normalizeStoredUploads(seeded)) changed = true;
+  if (changed) persist();
 }
 
 const app = express();
+app.set('trust proxy', 1);
+
+function publicBaseFor(req) {
+  return publicBaseFromRequest(req);
+}
 const EXTRA_ORIGINS = String(process.env.CORS_ORIGINS || '')
   .split(',')
   .map((s) => s.trim())
@@ -128,8 +138,8 @@ function avatarFromName(name = '') {
   return chars.length ? chars[0] : '用';
 }
 
-function presentUser(user) {
-  const base = publicUser(user, PUBLIC_BASE);
+function presentUser(user, req) {
+  const base = publicUser(user, publicBaseFor(req));
   if (!base) return base;
   return { ...base, trust: trustSummary(user.id, loadDb()) };
 }
@@ -145,11 +155,7 @@ function touch(db, userId) {
 }
 
 function storedUploadPath(value) {
-  const s = String(value || '').trim().split('?')[0];
-  if (s.startsWith('/uploads/')) return s;
-  const prefix = `${PUBLIC_BASE}/uploads/`;
-  if (s.startsWith(prefix)) return s.slice(PUBLIC_BASE.length);
-  return '';
+  return uploadPath(value);
 }
 
 /** Persist a new data-URL avatar, or keep the caller's current upload. */
@@ -241,7 +247,8 @@ function bumpOffer(db, offer) {
   db.offers = [offer, ...db.offers.filter((o) => o.id !== offer.id)];
 }
 
-function threadDto(thread, userId, db) {
+function threadDto(thread, userId, db, req) {
+  const base = publicBaseFor(req);
   const listing = db.listings.find((l) => l.id === thread.listingId);
   const peerId = thread.buyerId === userId ? thread.sellerId : thread.buyerId;
   const peer = db.users.find((u) => u.id === peerId);
@@ -258,7 +265,7 @@ function threadDto(thread, userId, db) {
     sellerId: thread.sellerId,
     peerId: peerId || '',
     peerName: peer?.name || '街坊',
-    peerAvatar: presentAvatar(peer?.avatar || '?', PUBLIC_BASE),
+    peerAvatar: presentAvatar(peer?.avatar || '?', base),
     preview: thread.preview || (msgs.length ? msgs[msgs.length - 1].text.split('\n')[0] : ''),
     time: relativeTime(thread.updatedAt || thread.createdAt),
     unread,
@@ -272,7 +279,7 @@ function threadDto(thread, userId, db) {
         createdAt: m.createdAt,
       };
     }),
-    listing: listing ? listingDto(listing, db, PUBLIC_BASE, userId) : null,
+    listing: listing ? listingDto(listing, db, base, userId) : null,
     offer: offer ? offerDto(offer, db, userId) : null,
   };
 }
@@ -400,7 +407,7 @@ app.post('/api/auth/register', (req, res) => {
   db.users.push(user);
   persist();
   const token = sign(user);
-  res.status(201).json({ token, user: presentUser(user) });
+  res.status(201).json({ token, user: presentUser(user, req) });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -413,7 +420,7 @@ app.post('/api/auth/login', (req, res) => {
   }
   touch(db, user.id);
   persist();
-  res.json({ token: sign(user), user: presentUser(user) });
+  res.json({ token: sign(user), user: presentUser(user, req) });
 });
 
 app.post('/api/auth/forgot', (req, res) => {
@@ -460,7 +467,7 @@ app.post('/api/auth/reset', (req, res) => {
 app.get('/api/me', auth, (req, res) => {
   const db = loadDb();
   if (touch(db, req.user.id)) persist();
-  res.json({ user: presentUser(req.user) });
+  res.json({ user: presentUser(req.user, req) });
 });
 
 app.patch('/api/me', auth, (req, res) => {
@@ -512,7 +519,7 @@ app.patch('/api/me', auth, (req, res) => {
   user.avatar = nextAvatar;
   touch(db, user.id);
   persist();
-  res.json({ user: presentUser(user) });
+  res.json({ user: presentUser(user, req) });
 });
 
 function priceBound(value) {
@@ -555,7 +562,7 @@ app.get('/api/listings', optionalAuth, (req, res) => {
   const paged = pageWindow(list, req.query);
   if (paged.error) return res.status(400).json({ error: 'INVALID_INPUT', message: '頁數不正確' });
   res.json({
-    listings: paged.items.map((l) => listingDto(l, db, PUBLIC_BASE, viewerId)),
+    listings: paged.items.map((l) => listingDto(l, db, publicBaseFor(req), viewerId)),
     total: paged.total,
     offset: paged.offset,
     limit: paged.limit,
@@ -568,7 +575,7 @@ app.get('/api/listings/:id', optionalAuth, (req, res) => {
   const db = loadDb();
   const l = db.listings.find((x) => x.id === req.params.id);
   if (!l) return res.status(404).json({ error: 'NOT_FOUND' });
-  res.json({ listing: listingDto(l, db, PUBLIC_BASE, req.user?.id || '') });
+  res.json({ listing: listingDto(l, db, publicBaseFor(req), req.user?.id || '') });
 });
 
 app.post('/api/listings', auth, (req, res) => {
@@ -582,7 +589,7 @@ app.post('/api/listings', auth, (req, res) => {
   if (!title || !price || price <= 0 || !description) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '請填寫標題、價錢與描述' });
   }
-  const photos = savePhotos(req.body?.photos || [], PUBLIC_BASE);
+  const photos = savePhotos(req.body?.photos || []);
   if (!photos.length) {
     return res.status(400).json({ error: 'PHOTO_REQUIRED', message: '請至少上傳一張相片' });
   }
@@ -600,19 +607,14 @@ app.post('/api/listings', auth, (req, res) => {
     sellerId: req.user.id,
     tone: pickTone(title),
     emoji: pickEmoji(category),
-    photos: photos.map((p) => p.replace(PUBLIC_BASE, '') || p),
+    photos,
     sold: false,
     createdAt: Date.now(),
   };
-  // store relative /uploads paths when possible
-  listing.photos = photos.map((p) => {
-    if (p.startsWith(PUBLIC_BASE)) return p.slice(PUBLIC_BASE.length);
-    return p;
-  });
   db.listings.unshift(listing);
   touch(db, req.user.id);
   persist();
-  res.status(201).json({ listing: listingDto(listing, db, PUBLIC_BASE, req.user.id) });
+  res.status(201).json({ listing: listingDto(listing, db, publicBaseFor(req), req.user.id) });
 });
 
 app.patch('/api/listings/:id/sold', auth, (req, res) => {
@@ -626,7 +628,7 @@ app.patch('/api/listings/:id/sold', auth, (req, res) => {
   else delete listing.buyerId;
   touch(db, req.user.id);
   persist();
-  res.json({ listing: listingDto(listing, db, PUBLIC_BASE, req.user.id) });
+  res.json({ listing: listingDto(listing, db, publicBaseFor(req), req.user.id) });
 });
 
 app.post('/api/listings/:id/want', auth, (req, res) => {
@@ -656,7 +658,7 @@ app.get('/api/wants', auth, (req, res) => {
   const listings = ids
     .map((lid) => db.listings.find((l) => l.id === lid))
     .filter(Boolean)
-    .map((l) => listingDto(l, db, PUBLIC_BASE, req.user.id));
+    .map((l) => listingDto(l, db, publicBaseFor(req), req.user.id));
   res.json({ wants: ids, listings });
 });
 
@@ -731,7 +733,7 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   persist();
   res.status(201).json({
     offer: offerDto(offer, db, req.user.id),
-    thread: threadDto(thread, req.user.id, db),
+    thread: threadDto(thread, req.user.id, db, req),
     updated: lead !== '出價',
   });
 });
@@ -846,7 +848,7 @@ app.patch('/api/offers/:id', auth, (req, res) => {
   persist();
   res.json({
     offer: offerDto(offer, db, req.user.id),
-    thread: threadDto(thread, req.user.id, db),
+    thread: threadDto(thread, req.user.id, db, req),
   });
 });
 
@@ -893,7 +895,7 @@ app.put('/api/offers/:id/handoff', auth, (req, res) => {
   res.json({
     handoff: presentHandoff(result.handoff),
     offer: offerDto(offer, db, req.user.id),
-    thread: threadDto(thread, req.user.id, db),
+    thread: threadDto(thread, req.user.id, db, req),
   });
 });
 
@@ -928,7 +930,7 @@ app.post('/api/offers/:id/handoff/confirm', auth, (req, res) => {
   res.json({
     handoff: presentHandoff(result.handoff),
     offer: offerDto(offer, db, req.user.id),
-    thread: threadDto(thread, req.user.id, db),
+    thread: threadDto(thread, req.user.id, db, req),
   });
 });
 
@@ -938,7 +940,7 @@ app.get('/api/threads', auth, (req, res) => {
   const mine = db.threads
     .filter((t) => t.buyerId === req.user.id || t.sellerId === req.user.id)
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-    .map((t) => threadDto(t, req.user.id, db));
+    .map((t) => threadDto(t, req.user.id, db, req));
   res.json({ threads: mine });
 });
 
@@ -953,7 +955,7 @@ app.get('/api/threads/:id', auth, (req, res) => {
   else thread.sellerUnread = false;
   touch(db, req.user.id);
   persist();
-  res.json({ thread: threadDto(thread, req.user.id, db) });
+  res.json({ thread: threadDto(thread, req.user.id, db, req) });
 });
 
 app.post('/api/threads/:id/messages', auth, (req, res) => {
@@ -985,7 +987,7 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
       text: msg.text,
       createdAt: msg.createdAt,
     },
-    thread: threadDto(thread, req.user.id, db),
+    thread: threadDto(thread, req.user.id, db, req),
   });
 });
 
@@ -1058,12 +1060,12 @@ app.get('/api/users/:id', optionalAuth, (req, res) => {
   const db = loadDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這位街坊' });
-  const profile = presentUser(user);
+  const profile = presentUser(user, req);
   delete profile.email;
   const listings = db.listings
     .filter((l) => l.sellerId === user.id)
     .sort((a, b) => b.createdAt - a.createdAt)
-    .map((l) => listingDto(l, db, PUBLIC_BASE, req.user?.id || ''));
+    .map((l) => listingDto(l, db, publicBaseFor(req), req.user?.id || ''));
   const reviews = (db.reviews || [])
     .filter((r) => r.toId === user.id && isActiveReview(r, db))
     .sort((a, b) => b.createdAt - a.createdAt)
@@ -1107,7 +1109,7 @@ app.post('/api/listings/:id/reviews', auth, (req, res) => {
   persist();
   res.status(201).json({
     review: presentReview(review, db),
-    listing: listingDto(listing, db, PUBLIC_BASE, req.user.id),
+    listing: listingDto(listing, db, publicBaseFor(req), req.user.id),
   });
 });
 

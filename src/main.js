@@ -115,17 +115,32 @@ function firstPhoto(l) {
   return Array.isArray(l?.photos) && l.photos[0] ? l.photos[0] : '';
 }
 
-function thumbInner(l, { emojiClass = 'emoji' } = {}) {
-  const photo = firstPhoto(l);
-  if (photo) {
-    return `<img class="thumb-img" src="${escapeAttr(photo)}" alt="" />`;
-  }
-  return `<span class="${emojiClass}">${l?.emoji || '📦'}</span>`;
-}
-
 function isPhotoAvatar(avatar) {
   const a = String(avatar || '').trim();
   return a.startsWith('/uploads/') || a.startsWith('http://') || a.startsWith('https://') || a.startsWith('data:');
+}
+
+/** Listing files live on the API. Relative paths and dead loopback hosts both resolve there. */
+function mediaSrc(value) {
+  const a = String(value || '').trim();
+  if (!a) return '';
+  if (a.startsWith('/uploads/')) return `${API_BASE}${a}`;
+  if (a.startsWith('data:')) return a;
+  try {
+    const url = new URL(a);
+    if (url.pathname.startsWith('/uploads/')) return `${API_BASE}${url.pathname}`;
+  } catch {
+    /* leave non-URL values alone */
+  }
+  return a;
+}
+
+function thumbInner(l, { emojiClass = 'emoji' } = {}) {
+  const photo = firstPhoto(l);
+  if (photo) {
+    return `<img class="thumb-img" src="${escapeAttr(mediaSrc(photo))}" alt="" />`;
+  }
+  return `<span class="${emojiClass}">${l?.emoji || '📦'}</span>`;
 }
 
 function letterFromName(name = '') {
@@ -134,16 +149,7 @@ function letterFromName(name = '') {
 }
 
 function avatarSrc(avatar) {
-  const a = String(avatar || '').trim();
-  if (a.startsWith('/uploads/')) return `${API_BASE}${a}`;
-  if (a.startsWith('data:')) return a;
-  try {
-    const url = new URL(a);
-    if (url.pathname.startsWith('/uploads/')) return `${API_BASE}${url.pathname}`;
-  } catch {
-    /* letter avatar */
-  }
-  return a;
+  return mediaSrc(avatar);
 }
 
 function avatarHtml(avatar, size = '') {
@@ -1168,10 +1174,10 @@ function galleryHtml(l, photos) {
       </div>
     </div>`;
   }
-  const src = photos[index];
+  const src = mediaSrc(photos[index]);
   return `<div class="gallery ${sold ? 'sold' : ''}" id="gallery">
     <div class="gallery-stage" style="background:${escapeAttr(l.tone || '')}">
-      <img class="hero-img" src="${escapeAttr(src)}" alt="${escapeAttr(l.title)}" />
+      <img class="hero-img" src="${escapeAttr(src)}" alt="" />
       ${sold ? '<span class="sold-banner">已售</span>' : ''}
       ${
         photos.length > 1
@@ -1187,7 +1193,7 @@ function galleryHtml(l, photos) {
         ${photos
           .map(
             (p, i) =>
-              `<button type="button" class="gallery-thumb ${i === index ? 'on' : ''}" data-photo="${i}" aria-label="第 ${i + 1} 張"><img src="${escapeAttr(p)}" alt="" /></button>`
+              `<button type="button" class="gallery-thumb ${i === index ? 'on' : ''}" data-photo="${i}" aria-label="第 ${i + 1} 張"><img src="${escapeAttr(mediaSrc(p))}" alt="" /></button>`
           )
           .join('')}
       </div>`
@@ -1204,7 +1210,7 @@ function bindGallery(photos) {
     const len = photos.length;
     uiGallery.index = ((next % len) + len) % len;
     const img = root.querySelector('.hero-img');
-    if (img) img.src = photos[uiGallery.index];
+    if (img) img.src = mediaSrc(photos[uiGallery.index]);
     const count = root.querySelector('.gallery-count');
     if (count) count.textContent = `${uiGallery.index + 1} / ${len}`;
     root.querySelectorAll('.gallery-thumb').forEach((btn, i) => {
@@ -1713,6 +1719,7 @@ async function renderDetail(id, token = nextView()) {
     : '';
 
   const content = `
+    <div class="dock-scroll">
     <header class="topbar">
       <button class="back" type="button" data-go="home" aria-label="返回">←</button>
       <h1>商品詳情</h1>
@@ -1747,11 +1754,12 @@ async function renderDetail(id, token = nextView()) {
       <p class="trust-footnote">${TRUST_FOOTNOTE}</p>
       ${reviewBlock(l)}
     </section>
+    </div>
     <div class="actionbar">
       ${actionButtons}
     </div>`;
 
-  app.innerHTML = shell(content, { noTab: true });
+  app.innerHTML = shell(content, { noTab: true, screenClass: 'docked' });
   bindGallery(photos);
   bindOfferStatus(app, { onDone: () => renderDetail(id) });
   app.querySelector('#go-bargain')?.addEventListener('click', () => openOfferSheet(l));
@@ -1816,6 +1824,7 @@ async function renderBargain(id, token = nextView()) {
   }
   const offers = getOffersForListing(id);
   const content = `
+    <div class="dock-scroll">
     <header class="topbar">
       <button class="back" type="button" data-go="detail/${l.id}" aria-label="返回">←</button>
       <h1>出價</h1>
@@ -1850,12 +1859,13 @@ async function renderBargain(id, token = nextView()) {
           : `<div class="empty" style="padding:16px 0">還沒有出價，輸入金額做第一個</div>`
       }
     </div>
+    </div>
     <div class="actionbar">
       <button class="btn ghost" type="button" data-go="detail/${l.id}">取消</button>
       <button class="btn primary" type="submit" form="offer-form">送出出價</button>
     </div>`;
 
-  app.innerHTML = shell(content, { noTab: true });
+  app.innerHTML = shell(content, { noTab: true, screenClass: 'docked' });
   bindOfferForm(app.querySelector('#offer-form'), l, {
     onSuccess: (thread, { updated } = {}) => {
       toast(updated ? '已更新出價，待賣家回覆' : '出價已送出，待賣家回覆');
