@@ -2246,8 +2246,9 @@ function renderPost(token = nextView()) {
         </div>
         <div class="field check-field">
           <label class="check-row">
-            <input type="checkbox" name="negotiable" ${draft.negotiable ? 'checked' : ''} />
-            <span>可議價</span>
+            <input id="negotiable" type="checkbox" name="negotiable" ${draft.negotiable ? 'checked' : ''} />
+            <span class="check-box" aria-hidden="true"></span>
+            <span class="check-text">可議價</span>
           </label>
           <p class="photo-hint">參考價只是同類刊登的大概，由你決定。不是估價或鑑定。</p>
         </div>`;
@@ -2309,7 +2310,13 @@ function renderPost(token = nextView()) {
         });
       });
     }
-    if (step === 2) renderHint();
+    if (step === 2) {
+      renderHint();
+      const negotiable = app.querySelector('#negotiable');
+      negotiable?.addEventListener('change', () => {
+        draft.negotiable = negotiable.checked;
+      });
+    }
     app.querySelectorAll('[data-edit-step]').forEach((btn) => {
       btn.addEventListener('click', () => goStep(Number(btn.dataset.editStep)));
     });
