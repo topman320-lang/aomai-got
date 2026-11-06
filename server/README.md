@@ -33,7 +33,7 @@ From repo root: `npm run server` (after `npm run server:install` once).
 |-----|---------|
 | `PORT` | `8787` |
 | `JWT_SECRET` | `aomai-got-dev-secret-change-me` |
-| `PUBLIC_BASE` | `http://127.0.0.1:8787` |
+| `PUBLIC_BASE` | request host, or `RENDER_EXTERNAL_URL` when set. Loopback values are ignored so production does not emit `127.0.0.1`. |
 
 ## Extra routes
 

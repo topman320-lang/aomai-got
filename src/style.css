@@ -100,6 +100,31 @@ img {
   padding-bottom: calc(88px + var(--safe-b));
 }
 
+/* Detail / bargain: pin the action bar in the layout instead of position:fixed.
+   A transformed fixed bar inside the scrolling screen misses taps on iOS. */
+.phone:has(.screen.docked) {
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.screen.no-tab.docked {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+  min-height: 0;
+}
+
+.dock-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* Top bars */
 .topbar {
   position: sticky;
@@ -519,8 +544,9 @@ img {
 /* Bottom action bar (detail / bargain / post) */
 .actionbar {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  margin-inline: auto;
   bottom: 0;
   width: 100%;
   max-width: 430px;
@@ -532,6 +558,18 @@ img {
   z-index: 30;
 }
 
+.screen.docked > .actionbar {
+  position: static;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  flex: 0 0 auto;
+  z-index: 5;
+}
+
 .btn {
   flex: 1;
   height: 48px;
@@ -541,6 +579,8 @@ img {
   font-weight: 600;
   letter-spacing: 0.04em;
   border: 1px solid var(--ink);
+  touch-action: manipulation;
+  position: relative;
 }
 
 .btn.primary {
@@ -902,8 +942,9 @@ img {
 /* Tab bar */
 .tabbar {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  margin-inline: auto;
   bottom: 0;
   width: 100%;
   max-width: 430px;
@@ -1261,6 +1302,14 @@ html[data-theme="dark"] .theme-switch::after {
 .hero-img {
   position: absolute;
   inset: 0;
+  max-width: 100%;
+  max-height: 100%;
+  pointer-events: none;
+}
+
+.gallery-thumb img,
+.thumb .thumb-img {
+  pointer-events: none;
 }
 
 .hero-dots {
@@ -1572,6 +1621,8 @@ html[data-theme="dark"] .bubble-row.me .bubble-time {
   display: grid;
   place-items: center;
   touch-action: pan-y;
+  min-width: 0;
+  width: 100%;
 }
 
 .gallery-stage .emoji {

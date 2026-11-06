@@ -55,14 +55,133 @@ export function id(prefix = '') {
 
 export function isPhotoAvatar(avatar) {
   const a = String(avatar || '').trim();
-  return a.startsWith('/uploads/') || /^https?:\/\//i.test(a) || a.startsWith('data:');
+  return Boolean(uploadPath(a)) || /^https?:\/\//i.test(a) || a.startsWith('data:');
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
+
+export function isLoopbackHost(hostname) {
+  const host = String(hostname || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '');
+  return LOOPBACK_HOSTS.has(host);
+}
+
+/** `/uploads/<file>` from a relative path or any absolute URL. Empty if it is not our file. */
+export function uploadPath(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw.startsWith('data:')) return '';
+  let pathname = '';
+  if (raw.startsWith('/uploads/')) pathname = raw.split('?')[0].split('#')[0];
+  else if (/^https?:\/\//i.test(raw)) {
+    try {
+      pathname = new URL(raw).pathname;
+    } catch {
+      return '';
+    }
+  } else return '';
+  if (!pathname.startsWith('/uploads/')) return '';
+  const name = pathname.slice('/uploads/'.length);
+  if (!name || name.includes('..') || name.includes('/') || name.includes('\\') || !/^[A-Za-z0-9._-]+$/.test(name)) {
+    return '';
+  }
+  return `/uploads/${name}`;
+}
+
+function originOf(base) {
+  const raw = String(base || '').trim().replace(/\/$/, '');
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+    return url.origin;
+  } catch {
+    return '';
+  }
+}
+
+/** A configured origin phones can reach. Loopback (Render's bind address) is ignored. */
+export function usablePublicBase(base) {
+  const origin = originOf(base);
+  if (!origin) return '';
+  try {
+    if (isLoopbackHost(new URL(origin).hostname)) return '';
+  } catch {
+    return '';
+  }
+  return origin;
+}
+
+function headerValue(req, name) {
+  if (!req) return '';
+  if (typeof req.get === 'function') {
+    const value = req.get(name);
+    return value == null ? '' : String(value);
+  }
+  const headers = req.headers || {};
+  const value = headers[name] ?? headers[name.toLowerCase()];
+  if (Array.isArray(value)) return String(value[0] || '');
+  return value == null ? '' : String(value);
+}
+
+/**
+ * Origin to prefix onto /uploads paths for this response.
+ * Public env wins. Otherwise use the request host. Loopback requests keep
+ * their own origin so local Vite can still load images; they never inherit
+ * Render's internal 127.0.0.1:$PORT bind address.
+ */
+export function publicBaseFromRequest(req, env = process.env) {
+  const configured = usablePublicBase(env.PUBLIC_BASE) || usablePublicBase(env.RENDER_EXTERNAL_URL);
+  if (configured) return configured;
+  const host = String(headerValue(req, 'host')).split(',')[0].trim();
+  if (!host) return '';
+  let hostname = host;
+  try {
+    hostname = new URL(`http://${host}`).hostname;
+  } catch {
+    hostname = host.split(':')[0];
+  }
+  if (isLoopbackHost(hostname)) {
+    const proto = req?.protocol === 'https' ? 'https' : 'http';
+    return `${proto}://${host}`;
+  }
+  const forwarded = headerValue(req, 'x-forwarded-proto').split(',')[0].trim().toLowerCase();
+  const proto = forwarded === 'http' || forwarded === 'https' ? forwarded : req?.protocol === 'http' ? 'http' : 'https';
+  return `${proto}://${host}`;
+}
+
+/** Rewrite a stored upload to a client-reachable URL. Letters and external URLs pass through. */
+export function presentUpload(value, publicBase = '') {
+  const path = uploadPath(value);
+  if (!path) return String(value ?? '');
+  const base = originOf(publicBase);
+  return base ? `${base}${path}` : path;
 }
 
 /** Turn a stored /uploads path into an absolute URL. Letters pass through. */
 export function presentAvatar(avatar, publicBase = '') {
-  const a = String(avatar || '');
-  if (a.startsWith('/uploads/') && publicBase) return `${publicBase}${a}`;
-  return a;
+  return presentUpload(avatar, publicBase);
+}
+
+/** Persist relative /uploads paths so a later deploy cannot keep a dead host. */
+export function normalizeStoredUploads(db) {
+  if (!db) return false;
+  let changed = false;
+  const rewrite = (value) => {
+    const path = uploadPath(value);
+    if (!path || path === value) return value;
+    changed = true;
+    return path;
+  };
+  for (const user of db.users || []) {
+    if (user && typeof user.avatar === 'string') user.avatar = rewrite(user.avatar);
+  }
+  for (const listing of db.listings || []) {
+    if (!listing || !Array.isArray(listing.photos)) continue;
+    listing.photos = listing.photos.map((photo) => rewrite(photo));
+  }
+  return changed;
 }
 
 export function publicUser(u, publicBase = '') {
@@ -126,13 +245,18 @@ export function pickEmoji(category) {
   return map[category] || '📦';
 }
 
-/** Save data URL photos to disk; return public URL paths. */
-export function savePhotos(photos = [], publicBase) {
+/** Save data URL photos to disk. Always returns relative /uploads paths (or an external URL). */
+export function savePhotos(photos = []) {
   const out = [];
   for (const p of (photos || []).slice(0, 3)) {
     if (typeof p !== 'string' || !p) continue;
-    if (p.startsWith('/uploads/') || p.startsWith('http://') || p.startsWith('https://')) {
-      out.push(p.startsWith('http') ? p : `${publicBase}${p}`);
+    const existing = uploadPath(p);
+    if (existing) {
+      out.push(existing);
+      continue;
+    }
+    if (/^https?:\/\//i.test(p)) {
+      out.push(p);
       continue;
     }
     const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(p);
@@ -147,17 +271,13 @@ export function savePhotos(photos = [], publicBase) {
     if (!buf.length || buf.length > 1.5 * 1024 * 1024) continue;
     const ext = m[1].includes('png') ? 'png' : m[1].includes('webp') ? 'webp' : 'jpg';
     const name = `${id('img-')}.${ext}`;
+    ensureDirs();
     fs.writeFileSync(path.join(UPLOADS_DIR, name), buf);
-    out.push(`${publicBase}/uploads/${name}`);
+    out.push(`/uploads/${name}`);
   }
   return out;
 }
 
 export function absolutePhotos(photos, publicBase) {
-  return (photos || []).map((p) => {
-    if (!p) return p;
-    if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
-    if (p.startsWith('/')) return `${publicBase}${p}`;
-    return p;
-  });
+  return (photos || []).map((p) => (p ? presentUpload(p, publicBase) : p));
 }
