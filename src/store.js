@@ -1,9 +1,12 @@
 import {
   AuthApi,
+  BadgesApi,
   ListingsApi,
   OffersApi,
+  PriceApi,
   StatsApi,
   ThreadsApi,
+  UsersApi,
   WantsApi,
   clearToken,
   getToken,
@@ -34,6 +37,7 @@ function asMe(user) {
     bio: user.bio || '',
     email: user.email || '',
     verified: Boolean(user.verified),
+    trust: user.trust || null,
   };
 }
 
@@ -44,6 +48,7 @@ let state = {
   incomingOffers: [],
   threads: [],
   wants: [],
+  badges: { messages: 0, offers: 0 },
   ready: false,
   online: false,
 };
@@ -54,6 +59,40 @@ export function getState() {
 
 export function isLoggedIn() {
   return Boolean(getToken() && state.me?.id);
+}
+
+export function getBadges() {
+  return state.badges || { messages: 0, offers: 0 };
+}
+
+export function syncBadges() {
+  if (!isLoggedIn()) {
+    state.badges = { messages: 0, offers: 0 };
+    return state.badges;
+  }
+  const me = state.me.id;
+  const messages = state.threads.filter((t) => t.unread).length;
+  const seen = new Set();
+  let offers = 0;
+  const consider = (offer) => {
+    if (!offer || seen.has(offer.id)) return;
+    seen.add(offer.id);
+    const listing = state.listings.find((l) => l.id === offer.listingId);
+    if (listing?.sold) return;
+    const status = offer.status || 'pending';
+    if (offer.fromId === me && status === 'countered') {
+      offers += 1;
+      return;
+    }
+    if (offer.fromId !== me && status === 'pending') {
+      const incoming = (state.incomingOffers || []).some((item) => item.id === offer.id);
+      if (incoming || listing?.sellerId === me) offers += 1;
+    }
+  };
+  for (const offer of state.incomingOffers || []) consider(offer);
+  for (const offer of state.offers || []) consider(offer);
+  state.badges = { messages, offers };
+  return state.badges;
 }
 
 export function getListing(id) {
@@ -134,6 +173,7 @@ export async function bootstrap() {
     state.incomingOffers = [];
     state.threads = [];
     state.wants = [];
+    state.badges = { messages: 0, offers: 0 };
     return { online: false };
   }
 
@@ -159,7 +199,10 @@ export async function bootstrap() {
     state.wants = [];
     state.offers = [];
     state.incomingOffers = [];
+    state.badges = { messages: 0, offers: 0 };
   }
+  if (isLoggedIn()) await refreshBadges();
+  else syncBadges();
   state.ready = true;
   return { online: true, me: state.me };
 }
@@ -208,6 +251,7 @@ export async function refreshThreads() {
   }
   const { threads } = await ThreadsApi.list();
   state.threads = threads;
+  syncBadges();
   return threads;
 }
 
@@ -216,9 +260,10 @@ export async function refreshWants() {
     state.wants = [];
     return [];
   }
-  const { wants } = await WantsApi.list();
-  state.wants = wants;
-  return wants;
+  const data = await WantsApi.list();
+  state.wants = data.wants || [];
+  for (const listing of data.listings || []) upsertListing(listing);
+  return state.wants;
 }
 
 export async function refreshMyOffers() {
@@ -229,6 +274,7 @@ export async function refreshMyOffers() {
   const { offers } = await OffersApi.mine();
   const mineIds = new Set(offers.map((o) => o.id));
   state.offers = [...offers, ...state.offers.filter((o) => o.fromId !== state.me.id && !mineIds.has(o.id))];
+  syncBadges();
   return offers;
 }
 
@@ -241,7 +287,25 @@ export async function refreshIncomingOffers() {
   state.incomingOffers = offers;
   const ids = new Set(offers.map((o) => o.id));
   state.offers = [...offers, ...state.offers.filter((o) => !ids.has(o.id))];
+  syncBadges();
   return offers;
+}
+
+export async function refreshBadges() {
+  if (!isLoggedIn()) {
+    state.badges = { messages: 0, offers: 0 };
+    return state.badges;
+  }
+  try {
+    const data = await BadgesApi.get();
+    state.badges = {
+      messages: Number(data?.messages) || 0,
+      offers: Number(data?.offers) || 0,
+    };
+  } catch {
+    syncBadges();
+  }
+  return state.badges;
 }
 
 export async function login(email, password) {
@@ -251,6 +315,7 @@ export async function login(email, password) {
   await Promise.all([refreshListings(), refreshThreads(), refreshWants()]);
   await refreshMyOffers();
   await refreshIncomingOffers();
+  await refreshBadges();
   return state.me;
 }
 
@@ -261,6 +326,7 @@ export async function register(name, email, password) {
   await Promise.all([refreshListings(), refreshThreads(), refreshWants()]);
   await refreshMyOffers();
   await refreshIncomingOffers();
+  await refreshBadges();
   return state.me;
 }
 
@@ -305,6 +371,7 @@ export async function logout() {
   state.wants = [];
   state.offers = [];
   state.incomingOffers = [];
+  state.badges = { messages: 0, offers: 0 };
   await refreshListings().catch(() => {});
 }
 
@@ -322,6 +389,7 @@ export async function addOffer({ listingId, amount, meetup, message }) {
   });
   state.offers = [offer, ...state.offers.filter((o) => o.id !== offer.id)];
   upsertThread(thread);
+  syncBadges();
   return { offer, thread, updated: Boolean(updated) };
 }
 
@@ -330,18 +398,21 @@ export async function respondToOffer(offerId, payload) {
   state.offers = [offer, ...state.offers.filter((o) => o.id !== offer.id)];
   state.incomingOffers = state.incomingOffers.map((o) => (o.id === offer.id ? offer : o));
   upsertThread(thread);
+  syncBadges();
   return { offer, thread };
 }
 
 export async function sendMessage(threadId, text) {
   const { message, thread } = await ThreadsApi.send(threadId, text);
   upsertThread(thread);
+  syncBadges();
   return message;
 }
 
 export async function markThreadRead(threadId) {
   const { thread } = await ThreadsApi.get(threadId);
   upsertThread(thread);
+  syncBadges();
   return thread;
 }
 
@@ -358,20 +429,55 @@ export async function removeWant(listingId) {
 export async function setSold(listingId, sold) {
   const { listing } = await ListingsApi.setSold(listingId, sold);
   upsertListing(listing);
+  syncBadges();
   return listing;
 }
 
+export async function addReview(listingId, payload) {
+  const { review, listing } = await ListingsApi.review(listingId, payload);
+  upsertListing(listing);
+  if (listing?.sellerId === state.me.id && listing.sellerTrust) {
+    state.me = { ...state.me, trust: listing.sellerTrust };
+  }
+  return review;
+}
+
+export async function fetchUser(id) {
+  const data = await UsersApi.get(id);
+  for (const listing of data.listings || []) upsertListing(listing);
+  if (data.user?.id && data.user.id === state.me.id && data.user.trust) {
+    state.me = { ...state.me, trust: data.user.trust };
+  }
+  return data;
+}
+
+export function priceHint(category, condition) {
+  return PriceApi.hint(category, condition);
+}
+
+function localStats() {
+  const mine = state.listings.filter((l) => l.sellerId === state.me.id);
+  const sold = mine.filter((l) => l.sold).length;
+  const myOffers = state.offers.filter((o) => o.fromId === state.me.id);
+  return {
+    posts: mine.length,
+    bargains: myOffers.length,
+    deals: sold,
+    sold,
+    active: mine.length - sold,
+    saved: state.wants.length,
+    bought: state.me.trust?.bought || 0,
+    trust: state.me.trust || null,
+  };
+}
+
 export async function stats() {
-  if (!isLoggedIn()) return { posts: 0, bargains: 0, deals: 0 };
+  if (!isLoggedIn()) return localStats();
   try {
-    return await StatsApi.get();
+    const data = await StatsApi.get();
+    if (data?.trust) state.me = { ...state.me, trust: data.trust };
+    return data;
   } catch {
-    const mine = state.listings.filter((l) => l.sellerId === state.me.id);
-    const myOffers = state.offers.filter((o) => o.fromId === state.me.id);
-    return {
-      posts: mine.length,
-      bargains: myOffers.length,
-      deals: mine.filter((l) => l.sold).length,
-    };
+    return localStats();
   }
 }

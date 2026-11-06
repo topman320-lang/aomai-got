@@ -19,6 +19,16 @@ import {
   savePhotos,
 } from './db.js';
 import { listingDto, normalizeHandover, seedIfEmpty } from './seed.js';
+import {
+  acceptedBuyerId,
+  backfillDeals,
+  badgeCountsFor,
+  isActiveReview,
+  presentReview,
+  priceHint,
+  reviewAccess,
+  trustSummary,
+} from './trust.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -26,6 +36,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'aomai-got-dev-secret-change-me';
 const PUBLIC_BASE = process.env.PUBLIC_BASE || `http://127.0.0.1:${PORT}`;
 
 seedIfEmpty();
+{
+  const seeded = loadDb();
+  if (backfillDeals(seeded)) persist();
+}
 
 const app = express();
 const EXTRA_ORIGINS = String(process.env.CORS_ORIGINS || '')
@@ -112,7 +126,19 @@ function avatarFromName(name = '') {
 }
 
 function presentUser(user) {
-  return publicUser(user, PUBLIC_BASE);
+  const base = publicUser(user, PUBLIC_BASE);
+  if (!base) return base;
+  return { ...base, trust: trustSummary(user.id, loadDb()) };
+}
+
+/** Bump last-active at most once a minute so profile hints stay honest. */
+function touch(db, userId) {
+  const user = db.users.find((u) => u.id === userId);
+  if (!user) return false;
+  const nowTs = Date.now();
+  if (user.lastActiveAt && nowTs - user.lastActiveAt < 60 * 1000) return false;
+  user.lastActiveAt = nowTs;
+  return true;
 }
 
 function storedUploadPath(value) {
@@ -219,7 +245,7 @@ function threadDto(thread, userId, db) {
         createdAt: m.createdAt,
       };
     }),
-    listing: listing ? listingDto(listing, db, PUBLIC_BASE) : null,
+    listing: listing ? listingDto(listing, db, PUBLIC_BASE, userId) : null,
     offer: offer ? offerDto(offer, db) : null,
   };
 }
@@ -291,7 +317,7 @@ app.get('/privacy', (_req, res) => {
   <h2>一、我們蒐集什麼</h2>
   <ul>
     <li>帳號資料：使用者名稱、個人簡介、頭像、電郵、密碼（加密儲存）。</li>
-    <li>刊登與交易相關內容：商品說明、照片、出價、交收意願、聊天訊息。</li>
+    <li>刊登與交易相關內容：商品說明、照片、出價、交收意願、聊天訊息、街坊短評。</li>
     <li>裝置與技術資料：基本日誌（例如 IP、瀏覽器類型），用於維運與防止濫用。</li>
   </ul>
   <h2>二、用途</h2>
@@ -340,6 +366,7 @@ app.post('/api/auth/register', (req, res) => {
     bio: '澳門街坊',
     verified: false,
     createdAt: Date.now(),
+    lastActiveAt: Date.now(),
   };
   db.users.push(user);
   persist();
@@ -355,6 +382,8 @@ app.post('/api/auth/login', (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
     return res.status(401).json({ error: 'BAD_CREDENTIALS', message: '電郵或密碼不正確' });
   }
+  touch(db, user.id);
+  persist();
   res.json({ token: sign(user), user: presentUser(user) });
 });
 
@@ -400,6 +429,8 @@ app.post('/api/auth/reset', (req, res) => {
 });
 
 app.get('/api/me', auth, (req, res) => {
+  const db = loadDb();
+  if (touch(db, req.user.id)) persist();
   res.json({ user: presentUser(req.user) });
 });
 
@@ -450,6 +481,7 @@ app.patch('/api/me', auth, (req, res) => {
   user.name = name;
   user.bio = bio;
   user.avatar = nextAvatar;
+  touch(db, user.id);
   persist();
   res.json({ user: presentUser(user) });
 });
@@ -490,14 +522,15 @@ app.get('/api/listings', optionalAuth, (req, res) => {
       return true;
     });
   }
-  res.json({ listings: list.map((l) => listingDto(l, db, PUBLIC_BASE)) });
+  const viewerId = req.user?.id || '';
+  res.json({ listings: list.map((l) => listingDto(l, db, PUBLIC_BASE, viewerId)) });
 });
 
 app.get('/api/listings/:id', optionalAuth, (req, res) => {
   const db = loadDb();
   const l = db.listings.find((x) => x.id === req.params.id);
   if (!l) return res.status(404).json({ error: 'NOT_FOUND' });
-  res.json({ listing: listingDto(l, db, PUBLIC_BASE) });
+  res.json({ listing: listingDto(l, db, PUBLIC_BASE, req.user?.id || '') });
 });
 
 app.post('/api/listings', auth, (req, res) => {
@@ -536,8 +569,9 @@ app.post('/api/listings', auth, (req, res) => {
     return p;
   });
   db.listings.unshift(listing);
+  touch(db, req.user.id);
   persist();
-  res.status(201).json({ listing: listingDto(listing, db, PUBLIC_BASE) });
+  res.status(201).json({ listing: listingDto(listing, db, PUBLIC_BASE, req.user.id) });
 });
 
 app.patch('/api/listings/:id/sold', auth, (req, res) => {
@@ -547,8 +581,11 @@ app.patch('/api/listings/:id/sold', auth, (req, res) => {
   if (listing.sellerId !== req.user.id) return res.status(403).json({ error: 'FORBIDDEN' });
   const sold = req.body?.sold;
   listing.sold = typeof sold === 'boolean' ? sold : !listing.sold;
+  if (listing.sold) listing.buyerId = acceptedBuyerId(listing, db);
+  else delete listing.buyerId;
+  touch(db, req.user.id);
   persist();
-  res.json({ listing: listingDto(listing, db, PUBLIC_BASE) });
+  res.json({ listing: listingDto(listing, db, PUBLIC_BASE, req.user.id) });
 });
 
 app.post('/api/listings/:id/want', auth, (req, res) => {
@@ -558,6 +595,7 @@ app.post('/api/listings/:id/want', auth, (req, res) => {
   const exists = db.wants.find((w) => w.userId === req.user.id && w.listingId === listing.id);
   if (!exists) {
     db.wants.unshift({ userId: req.user.id, listingId: listing.id, createdAt: Date.now() });
+    touch(db, req.user.id);
     persist();
   }
   res.json({ ok: true, wants: db.wants.filter((w) => w.userId === req.user.id).map((w) => w.listingId) });
@@ -566,6 +604,7 @@ app.post('/api/listings/:id/want', auth, (req, res) => {
 app.delete('/api/listings/:id/want', auth, (req, res) => {
   const db = loadDb();
   db.wants = db.wants.filter((w) => !(w.userId === req.user.id && w.listingId === req.params.id));
+  touch(db, req.user.id);
   persist();
   res.json({ ok: true, wants: db.wants.filter((w) => w.userId === req.user.id).map((w) => w.listingId) });
 });
@@ -576,7 +615,7 @@ app.get('/api/wants', auth, (req, res) => {
   const listings = ids
     .map((lid) => db.listings.find((l) => l.id === lid))
     .filter(Boolean)
-    .map((l) => listingDto(l, db, PUBLIC_BASE));
+    .map((l) => listingDto(l, db, PUBLIC_BASE, req.user.id));
   res.json({ wants: ids, listings });
 });
 
@@ -639,6 +678,7 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   const lines = [`${lead} MOP ${offer.amount} · ${meetup}`];
   if (message) lines.push(message);
   pushMessage(db, thread, req.user.id, lines.join('\n'));
+  touch(db, req.user.id);
   persist();
   res.status(201).json({
     offer: offerDto(offer, db),
@@ -738,6 +778,7 @@ app.patch('/api/offers/:id', auth, (req, res) => {
 
   offer.updatedAt = nowTs;
   bumpOffer(db, offer);
+  touch(db, req.user.id);
   persist();
   res.json({
     offer: offerDto(offer, db),
@@ -764,6 +805,7 @@ app.get('/api/threads/:id', auth, (req, res) => {
   }
   if (thread.buyerId === req.user.id) thread.buyerUnread = false;
   else thread.sellerUnread = false;
+  touch(db, req.user.id);
   persist();
   res.json({ thread: threadDto(thread, req.user.id, db) });
 });
@@ -778,6 +820,7 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   const text = String(req.body?.text || '').trim();
   if (!text) return res.status(400).json({ error: 'INVALID_INPUT' });
   const msg = pushMessage(db, thread, req.user.id, text);
+  touch(db, req.user.id);
   persist();
   res.status(201).json({
     message: {
@@ -791,14 +834,88 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   });
 });
 
+app.get('/api/badges', auth, (req, res) => {
+  res.json(badgeCountsFor(loadDb(), req.user.id));
+});
+
+app.get('/api/price-hint', (req, res) => {
+  const category = String(req.query.category || '其他').trim();
+  const condition = String(req.query.condition || '良好').trim();
+  res.json(priceHint(loadDb(), category, condition));
+});
+
+app.get('/api/users/:id', optionalAuth, (req, res) => {
+  const db = loadDb();
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這位街坊' });
+  const profile = presentUser(user);
+  delete profile.email;
+  const listings = db.listings
+    .filter((l) => l.sellerId === user.id)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((l) => listingDto(l, db, PUBLIC_BASE, req.user?.id || ''));
+  const reviews = (db.reviews || [])
+    .filter((r) => r.toId === user.id && isActiveReview(r, db))
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 20)
+    .map((r) => presentReview(r, db));
+  res.json({ user: profile, listings, reviews });
+});
+
+app.post('/api/listings/:id/reviews', auth, (req, res) => {
+  const db = loadDb();
+  const listing = db.listings.find((l) => l.id === req.params.id);
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  const access = reviewAccess(listing, db, req.user.id);
+  if (!access.canReview) {
+    return res.status(400).json({
+      error: 'CANNOT_REVIEW',
+      message: access.myReview ? '你已經留過這筆評價' : '這筆暫時不能評價',
+    });
+  }
+  const stars = Number(req.body?.stars);
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請選 1 至 5 顆星' });
+  }
+  const text = String(req.body?.text || '').replace(/[\r\n]+/g, ' ').trim();
+  if (Array.from(text).length > 80) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '評價最多 80 字' });
+  }
+  const toId = req.user.id === listing.sellerId ? listing.buyerId : listing.sellerId;
+  const review = {
+    id: id('r-'),
+    listingId: listing.id,
+    fromId: req.user.id,
+    toId,
+    stars,
+    text,
+    createdAt: Date.now(),
+  };
+  if (!Array.isArray(db.reviews)) db.reviews = [];
+  db.reviews.unshift(review);
+  touch(db, req.user.id);
+  persist();
+  res.status(201).json({
+    review: presentReview(review, db),
+    listing: listingDto(listing, db, PUBLIC_BASE, req.user.id),
+  });
+});
+
 app.get('/api/stats', auth, (req, res) => {
   const db = loadDb();
   const mine = db.listings.filter((l) => l.sellerId === req.user.id);
   const myOffers = db.offers.filter((o) => o.fromId === req.user.id);
+  const sold = mine.filter((l) => l.sold).length;
+  const trust = trustSummary(req.user.id, db, { recentLimit: 3 });
   res.json({
     posts: mine.length,
     bargains: myOffers.length,
-    deals: mine.filter((l) => l.sold).length,
+    deals: sold,
+    sold,
+    active: mine.length - sold,
+    saved: db.wants.filter((w) => w.userId === req.user.id).length,
+    bought: trust.bought,
+    trust,
   });
 });
 

@@ -42,10 +42,10 @@ export async function api(path, { method = 'GET', body, auth = false, headers = 
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
   }
-  if (auth) {
+  if (auth === true || auth === 'if') {
     const token = getToken();
-    if (!token) throw new ApiError('請先登入', { status: 401, code: 'UNAUTHORIZED' });
-    opts.headers.Authorization = `Bearer ${token}`;
+    if (!token && auth === true) throw new ApiError('請先登入', { status: 401, code: 'UNAUTHORIZED' });
+    if (token) opts.headers.Authorization = `Bearer ${token}`;
   }
 
   let res;
@@ -103,9 +103,9 @@ export const ListingsApi = {
     if (params.min != null && params.min !== '') qs.set('min', String(params.min));
     if (params.max != null && params.max !== '') qs.set('max', String(params.max));
     const q = qs.toString();
-    return api(`/api/listings${q ? `?${q}` : ''}`);
+    return api(`/api/listings${q ? `?${q}` : ''}`, { auth: 'if' });
   },
-  get: (id) => api(`/api/listings/${encodeURIComponent(id)}`),
+  get: (id) => api(`/api/listings/${encodeURIComponent(id)}`, { auth: 'if' }),
   create: (payload) => api('/api/listings', { method: 'POST', body: payload, auth: true }),
   setSold: (id, sold) =>
     api(`/api/listings/${encodeURIComponent(id)}/sold`, {
@@ -117,7 +117,9 @@ export const ListingsApi = {
     api(`/api/listings/${encodeURIComponent(id)}/want`, { method: 'POST', auth: true }),
   unwant: (id) =>
     api(`/api/listings/${encodeURIComponent(id)}/want`, { method: 'DELETE', auth: true }),
-  offers: (id) => api(`/api/listings/${encodeURIComponent(id)}/offers`),
+  offers: (id) => api(`/api/listings/${encodeURIComponent(id)}/offers`, { auth: 'if' }),
+  review: (id, payload) =>
+    api(`/api/listings/${encodeURIComponent(id)}/reviews`, { method: 'POST', body: payload, auth: true }),
   createOffer: (id, payload) =>
     api(`/api/listings/${encodeURIComponent(id)}/offers`, {
       method: 'POST',
@@ -150,6 +152,24 @@ export const OffersApi = {
 
 export const StatsApi = {
   get: () => api('/api/stats', { auth: true }),
+};
+
+export const BadgesApi = {
+  get: () => api('/api/badges', { auth: true }),
+};
+
+export const UsersApi = {
+  get: (id) => api(`/api/users/${encodeURIComponent(id)}`, { auth: 'if' }),
+};
+
+export const PriceApi = {
+  hint: (category, condition) => {
+    const qs = new URLSearchParams({
+      category: category || '其他',
+      condition: condition || '良好',
+    });
+    return api(`/api/price-hint?${qs}`);
+  },
 };
 
 export function privacyUrl() {
