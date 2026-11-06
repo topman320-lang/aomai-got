@@ -2,6 +2,7 @@ import {
   AuthApi,
   BadgesApi,
   ListingsApi,
+  NoticesApi,
   OffersApi,
   PriceApi,
   StatsApi,
@@ -16,8 +17,28 @@ import {
 
 export const CATEGORIES = ['全部', '潮流', '服飾', '美妝', '數碼', '家電', '家居', '運動', '母嬰', '其他'];
 export const LOCATIONS = ['澳門 · 附近', '氹仔', '中區', '路環', '黑沙環', '筷子基'];
-export const CONDITIONS = ['全新', '幾乎全新', '良好', '有使用痕跡'];
+export const CONDITION_OPTIONS = [
+  { value: '全新', label: '全新', hint: '未使用，包裝或配件齊' },
+  { value: '幾乎全新', label: '幾乎全新', hint: '只用過一兩次，幾乎睇唔出痕跡' },
+  { value: '良好', label: '良好', hint: '日常使用痕跡，功能正常' },
+  { value: '有使用痕跡', label: '有使用痕跡', hint: '有刮花、污漬或小瑕疵，請在說明寫明' },
+  { value: '外觀較舊', label: '外觀較舊', hint: '功能正常，外觀明顯舊或有小缺件' },
+];
+export const CONDITIONS = CONDITION_OPTIONS.map((c) => c.value);
 export const MEETUPS = ['賣家地點', '買家地點', '中間點', '地鐵站'];
+/** Keep aligned with server/handoff.js MEET_PLACES. */
+export const MEET_PLACES = [
+  { id: 'senado', label: '議事亭前地' },
+  { id: 'ruinas', label: '大三巴牌坊' },
+  { id: 'lealdad', label: '仁慈堂' },
+  { id: 'border', label: '關閘廣場' },
+  { id: 'taipa', label: '官也街' },
+  { id: 'cotai', label: '路氹城' },
+  { id: 'hsa', label: '黑沙海灘' },
+  { id: 'um', label: '澳門大學' },
+  { id: 'must', label: '澳門科技大學' },
+  { id: 'custom', label: '自訂地點' },
+];
 export const HANDOVERS = ['面交', '自取', '面交／自取'];
 
 const GUEST_ME = {
@@ -48,7 +69,8 @@ let state = {
   incomingOffers: [],
   threads: [],
   wants: [],
-  badges: { messages: 0, offers: 0 },
+  notices: [],
+  badges: { messages: 0, offers: 0, notices: 0 },
   ready: false,
   online: false,
 };
@@ -62,12 +84,12 @@ export function isLoggedIn() {
 }
 
 export function getBadges() {
-  return state.badges || { messages: 0, offers: 0 };
+  return state.badges || { messages: 0, offers: 0, notices: 0 };
 }
 
 export function syncBadges() {
   if (!isLoggedIn()) {
-    state.badges = { messages: 0, offers: 0 };
+    state.badges = { messages: 0, offers: 0, notices: 0 };
     return state.badges;
   }
   const me = state.me.id;
@@ -91,7 +113,7 @@ export function syncBadges() {
   };
   for (const offer of state.incomingOffers || []) consider(offer);
   for (const offer of state.offers || []) consider(offer);
-  state.badges = { messages, offers };
+  state.badges = { messages, offers, notices: state.badges?.notices || 0 };
   return state.badges;
 }
 
@@ -173,7 +195,8 @@ export async function bootstrap() {
     state.incomingOffers = [];
     state.threads = [];
     state.wants = [];
-    state.badges = { messages: 0, offers: 0 };
+    state.notices = [];
+    state.badges = { messages: 0, offers: 0, notices: 0 };
     return { online: false };
   }
 
@@ -199,7 +222,8 @@ export async function bootstrap() {
     state.wants = [];
     state.offers = [];
     state.incomingOffers = [];
-    state.badges = { messages: 0, offers: 0 };
+    state.notices = [];
+    state.badges = { messages: 0, offers: 0, notices: 0 };
   }
   if (isLoggedIn()) await refreshBadges();
   else syncBadges();
@@ -218,18 +242,28 @@ export async function refreshListings(params = {}) {
   return listings;
 }
 
-export async function fetchHomeListings({ q = '', category = '全部', min = null, max = null } = {}) {
+export async function fetchHomeListings({ q = '', category = '全部', min = null, max = null, limit, offset } = {}) {
   const lo = cleanBound(min);
   const hi = cleanBound(max);
-  const { listings } = await ListingsApi.list({
+  const data = await ListingsApi.list({
     q: q || undefined,
     category: category !== '全部' ? category : undefined,
     min: lo == null ? undefined : lo,
     max: hi == null ? undefined : hi,
+    limit,
+    offset,
   });
+  const listings = Array.isArray(data?.listings) ? data.listings : [];
   const visible = listings.filter((l) => listingMatches(l, { q, category, min: lo, max: hi }));
   for (const l of visible) upsertListing(l);
-  return visible;
+  const total = Number(data?.total);
+  const nextOffset = Number(data?.nextOffset);
+  return {
+    listings: visible,
+    total: Number.isFinite(total) ? total : visible.length,
+    hasMore: Boolean(data?.hasMore),
+    nextOffset: Number.isFinite(nextOffset) ? nextOffset : visible.length,
+  };
 }
 
 export async function refreshListing(id) {
@@ -293,7 +327,7 @@ export async function refreshIncomingOffers() {
 
 export async function refreshBadges() {
   if (!isLoggedIn()) {
-    state.badges = { messages: 0, offers: 0 };
+    state.badges = { messages: 0, offers: 0, notices: 0 };
     return state.badges;
   }
   try {
@@ -301,6 +335,7 @@ export async function refreshBadges() {
     state.badges = {
       messages: Number(data?.messages) || 0,
       offers: Number(data?.offers) || 0,
+      notices: Number(data?.notices) || 0,
     };
   } catch {
     syncBadges();
@@ -371,7 +406,8 @@ export async function logout() {
   state.wants = [];
   state.offers = [];
   state.incomingOffers = [];
-  state.badges = { messages: 0, offers: 0 };
+  state.notices = [];
+  state.badges = { messages: 0, offers: 0, notices: 0 };
   await refreshListings().catch(() => {});
 }
 
@@ -400,6 +436,47 @@ export async function respondToOffer(offerId, payload) {
   upsertThread(thread);
   syncBadges();
   return { offer, thread };
+}
+
+function applyOfferResult(offer, thread) {
+  if (offer) {
+    state.offers = [offer, ...state.offers.filter((o) => o.id !== offer.id)];
+    state.incomingOffers = state.incomingOffers.map((o) => (o.id === offer.id ? offer : o));
+  }
+  upsertThread(thread);
+  syncBadges();
+}
+
+export async function saveHandoff(offerId, payload) {
+  const data = await OffersApi.saveHandoff(offerId, payload);
+  applyOfferResult(data.offer, data.thread);
+  return data;
+}
+
+export async function confirmHandoff(offerId) {
+  const data = await OffersApi.confirmHandoff(offerId);
+  applyOfferResult(data.offer, data.thread);
+  return data;
+}
+
+export async function refreshNotices() {
+  if (!isLoggedIn()) {
+    state.notices = [];
+    state.badges = { ...getBadges(), notices: 0 };
+    return [];
+  }
+  const data = await NoticesApi.list();
+  state.notices = data.notices || [];
+  state.badges = { ...getBadges(), notices: Number(data.unread) || state.notices.filter((n) => !n.read).length };
+  return state.notices;
+}
+
+export async function markNoticesRead(ids) {
+  if (!isLoggedIn()) return [];
+  const data = await NoticesApi.read(ids);
+  state.notices = data.notices || [];
+  state.badges = { ...getBadges(), notices: Number(data.unread) || 0 };
+  return state.notices;
 }
 
 export async function sendMessage(threadId, text) {

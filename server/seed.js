@@ -297,12 +297,41 @@ export function seedIfEmpty() {
     sold: true,
     createdAt: now - 8 * DAY,
   };
+  const lampId = id('l-');
+  const lamp = {
+    id: lampId,
+    title: '白色檯燈 可調光',
+    price: 60,
+    negotiable: true,
+    category: '家居',
+    location: '氹仔',
+    condition: '良好',
+    description: '自用檯燈，三檔調光，燈罩無裂。可議，約在公眾地方面交。',
+    handover: '面交',
+    sellerId: demo.id,
+    tone: pickTone('白色檯燈'),
+    emoji: '💡',
+    photos: [],
+    sold: false,
+    createdAt: now - 20 * MIN,
+  };
 
   db.users = users;
-  db.listings = [...listings, book, fan, mag];
+  db.listings = [...listings, book, fan, mag, lamp];
+  const bookOfferId = id('o-');
+  const fanOfferId = id('o-');
+  const magOfferId = id('o-');
+  const lampOfferId = id('o-');
+  const lampThreadId = id('t-');
+  const tLamp = now - 15 * MIN;
+  const macauDay = new Date(now + 8 * HOUR);
+  const meetDate = new Date(Date.UTC(macauDay.getUTCFullYear(), macauDay.getUTCMonth(), macauDay.getUTCDate() + 1));
+  const pad = (n) => String(n).padStart(2, '0');
+  const lampWhen = `${meetDate.getUTCFullYear()}-${pad(meetDate.getUTCMonth() + 1)}-${pad(meetDate.getUTCDate())}T15:00`;
+
   db.offers = [
     {
-      id: id('o-'),
+      id: bookOfferId,
       listingId: bookId,
       fromId: ken.id,
       amount: 30,
@@ -316,7 +345,7 @@ export function seedIfEmpty() {
       updatedAt: tBook,
     },
     {
-      id: id('o-'),
+      id: fanOfferId,
       listingId: fanId,
       fromId: demo.id,
       amount: 50,
@@ -330,7 +359,7 @@ export function seedIfEmpty() {
       updatedAt: tFan + 3 * HOUR,
     },
     {
-      id: id('o-'),
+      id: magOfferId,
       listingId: magId,
       fromId: ada.id,
       amount: 20,
@@ -342,6 +371,20 @@ export function seedIfEmpty() {
       agreedAmount: 20,
       createdAt: now - 8 * DAY,
       updatedAt: now - 7 * DAY,
+    },
+    {
+      id: lampOfferId,
+      listingId: lampId,
+      fromId: ken.id,
+      amount: 50,
+      meetup: '中間點',
+      message: '官也街可以嗎？',
+      status: 'accepted',
+      counterAmount: null,
+      counterMessage: '',
+      agreedAmount: 50,
+      createdAt: tLamp,
+      updatedAt: tLamp + 5 * MIN,
     },
   ];
   db.threads = [
@@ -366,6 +409,17 @@ export function seedIfEmpty() {
       sellerUnread: false,
       createdAt: tFan,
       updatedAt: tFan + 8 * MIN + 2 * HOUR + 6 * MIN,
+    },
+    {
+      id: lampThreadId,
+      listingId: lampId,
+      buyerId: ken.id,
+      sellerId: demo.id,
+      preview: '提議見面：官也街',
+      buyerUnread: false,
+      sellerUnread: true,
+      createdAt: tLamp,
+      updatedAt: tLamp + 5 * MIN,
     },
   ];
   db.messages = [
@@ -404,7 +458,48 @@ export function seedIfEmpty() {
       text: '收到。',
       createdAt: tFan + 8 * MIN + 2 * HOUR + 6 * MIN,
     },
+    {
+      id: id('m-'),
+      threadId: lampThreadId,
+      fromId: ken.id,
+      text: '接受出價 MOP 50\n提議見面：官也街，明天下午三點。',
+      createdAt: tLamp + 5 * MIN,
+    },
   ];
+  db.handoffs = [
+    {
+      id: id('h-'),
+      offerId: fanOfferId,
+      listingId: fanId,
+      placeId: 'taipa',
+      place: '官也街',
+      customPlace: '',
+      when: '2026-11-01T19:00',
+      note: '',
+      proposedBy: xiaomei.id,
+      buyerOk: true,
+      sellerOk: true,
+      createdAt: tFan + 3 * HOUR,
+      updatedAt: tFan + 4 * HOUR,
+    },
+    {
+      id: id('h-'),
+      offerId: lampOfferId,
+      listingId: lampId,
+      placeId: 'taipa',
+      place: '官也街',
+      customPlace: '',
+      when: lampWhen,
+      note: '燈罩我會帶上',
+      proposedBy: ken.id,
+      buyerOk: true,
+      sellerOk: false,
+      createdAt: tLamp + 5 * MIN,
+      updatedAt: tLamp + 5 * MIN,
+    },
+  ];
+  db.notices = [];
+  db.devices = [];
   db.wants = [];
   db.reviews = [
     {

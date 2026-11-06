@@ -16,6 +16,9 @@ const EMPTY = () => ({
   messages: [],
   wants: [],
   reviews: [],
+  handoffs: [],
+  notices: [],
+  devices: [],
 });
 
 function ensureDirs() {
@@ -134,11 +137,14 @@ export function savePhotos(photos = [], publicBase) {
     }
     const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(p);
     if (!m) continue;
-    let buf = Buffer.from(m[2], 'base64');
-    // Cap ~1.5MB per image for MVP
-    if (buf.length > 1.5 * 1024 * 1024) {
-      buf = buf.subarray(0, Math.floor(1.5 * 1024 * 1024));
+    let buf;
+    try {
+      buf = Buffer.from(m[2].replace(/\s/g, ''), 'base64');
+    } catch {
+      continue;
     }
+    // Skip oversized files instead of truncating them into a broken image.
+    if (!buf.length || buf.length > 1.5 * 1024 * 1024) continue;
     const ext = m[1].includes('png') ? 'png' : m[1].includes('webp') ? 'webp' : 'jpg';
     const name = `${id('img-')}.${ext}`;
     fs.writeFileSync(path.join(UPLOADS_DIR, name), buf);

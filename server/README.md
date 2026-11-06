@@ -39,7 +39,14 @@ From repo root: `npm run server` (after `npm run server:install` once).
 
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
-| GET | `/api/badges` | yes | `{ messages, offers }` — unread threads, and offers waiting on you |
+| GET | `/api/badges` | yes | `{ messages, offers, notices }` — unread threads, offers waiting on you, unread in-app notices |
+| GET | `/api/listings?limit&offset` | optional | Omit `limit` for the full list (我的). With `limit`, also returns `total`, `hasMore`, `nextOffset` |
+| PUT | `/api/offers/:id/handoff` | yes | Buyer or seller, accepted offer only. `{ placeId, customPlace?, when, note? }` |
+| POST | `/api/offers/:id/handoff/confirm` | yes | Confirms the current proposal. Both sides must confirm |
+| GET | `/api/notifications` | yes | In-app notices for messages, offers, handoff |
+| POST | `/api/notifications/read` | yes | `{ ids?: string[] }` — omit ids to mark all read |
+| POST | `/api/devices` | yes | Store a push token. Remote APNs/FCM is not sent |
+| GET | `/api/push/status` | yes | `{ remotePush: false, ... }` |
 | GET | `/api/price-hint?category&condition` | no | Peer range or a rough guide. Not an appraisal |
 | GET | `/api/users/:id` | optional | Public profile, listings, short reviews. No email |
 | POST | `/api/listings/:id/reviews` | yes | `{ stars: 1-5, text? }` after a completed handover |
