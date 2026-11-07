@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  coerceAudioDataUrl,
   encodeVoiceWav,
   formatVoiceDuration,
   mixToMono,
   playableAudioSrc,
   preferredRecorderMime,
   resampleMono,
+  sniffAudioMime,
   voiceErrorMessage,
 } from './voice.js';
 
@@ -46,6 +48,20 @@ test('playable audio src stays on our uploads and drops scripts', () => {
   assert.equal(playableAudioSrc('https://evil.example/steal.mp3', 'https://aomai.example'), '');
   assert.equal(playableAudioSrc('/uploads/../secret.wav'), '');
   assert.equal(playableAudioSrc('/uploads/img-abc.jpg'), '');
+});
+
+test('unlabeled recordings are retagged from the file header', () => {
+  const webm = new Uint8Array(16);
+  webm[0] = 0x1a;
+  webm[1] = 0x45;
+  webm[2] = 0xdf;
+  webm[3] = 0xa3;
+  assert.equal(sniffAudioMime(webm), 'audio/webm');
+  assert.equal(
+    coerceAudioDataUrl('data:application/octet-stream;base64,AAAA', webm),
+    'data:audio/webm;base64,AAAA'
+  );
+  assert.equal(coerceAudioDataUrl('data:audio/mp4;base64,AAAA', webm), 'data:audio/mp4;base64,AAAA');
 });
 
 test('wav encoder writes a mono PCM header', () => {

@@ -286,8 +286,13 @@ export const MAX_VOICE_BYTES = 3 * 1024 * 1024;
 
 const AUDIO_EXT = {
   'audio/webm': 'webm',
+  'video/webm': 'webm',
   'audio/mp4': 'mp4',
+  'audio/m4a': 'mp4',
+  'audio/x-m4a': 'mp4',
+  'audio/aac': 'mp4',
   'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
   'audio/ogg': 'ogg',
   'audio/wav': 'wav',
   'audio/wave': 'wav',
@@ -354,6 +359,17 @@ function normalizeVoiceDuration(value) {
   return Math.max(1, Math.min(MAX_VOICE_SECONDS, Math.round(n)));
 }
 
+function sniffedAudioExt(buf) {
+  if (!buf || buf.length < 12) return '';
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return 'webm';
+  if (buf.toString('ascii', 0, 4) === 'OggS') return 'ogg';
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WAVE') return 'wav';
+  if (buf.toString('ascii', 4, 8) === 'ftyp') return 'mp4';
+  if (buf.toString('ascii', 0, 3) === 'ID3') return 'mp3';
+  if (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0) return 'mp3';
+  return '';
+}
+
 /** Container sniff so a renamed image or text file is not stored as a voice note. */
 function audioMagicOk(buf, ext) {
   if (!buf || buf.length < 12) return false;
@@ -399,8 +415,6 @@ export function saveMessageAudio(input, { maxBytes = MAX_VOICE_BYTES } = {}) {
   }
   const parsed = parseAudioDataUrl(input.data);
   if (!parsed) return { error: 'INVALID_AUDIO', message: '語音格式不正確' };
-  const ext = AUDIO_EXT[parsed.mime];
-  if (!ext) return { error: 'INVALID_AUDIO', message: '只接受 webm、mp4、mp3、ogg 或 wav 音訊' };
   let buf;
   try {
     buf = Buffer.from(String(parsed.b64).replace(/\s/g, ''), 'base64');
@@ -409,6 +423,12 @@ export function saveMessageAudio(input, { maxBytes = MAX_VOICE_BYTES } = {}) {
   }
   if (!buf.length || buf.length < 16) return { error: 'INVALID_AUDIO', message: '語音檔無效' };
   if (buf.length > maxBytes) return { error: 'AUDIO_TOO_LARGE', message: '語音檔太大' };
+  const declared = AUDIO_EXT[parsed.mime];
+  const sniffed = sniffedAudioExt(buf);
+  // Phones often label a real recording as octet-stream or video/webm.
+  const ext = declared || sniffed;
+  if (!ext) return { error: 'INVALID_AUDIO', message: '只接受 webm、mp4、mp3、ogg 或 wav 音訊' };
+  if (declared && sniffed && declared !== sniffed) return { error: 'INVALID_AUDIO', message: '只接受音訊檔' };
   if (!audioMagicOk(buf, ext)) return { error: 'INVALID_AUDIO', message: '只接受音訊檔' };
   ensureDirs();
   const name = `${id('aud-')}.${ext}`;
