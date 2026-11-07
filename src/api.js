@@ -194,3 +194,7 @@ export const PriceApi = {
 export function privacyUrl() {
   return `${API_BASE}/privacy`;
 }
+
+export function supportUrl() {
+  return `${API_BASE}/support`;
+}

@@ -42,6 +42,7 @@ import {
 import { buildProposal, confirmProposal, findHandoff, handoffAccess, presentHandoff } from './handoff.js';
 import { addNotice, markNoticesRead, noticesFor, remotePushHook, unreadNotices } from './notices.js';
 import { filterBrowseListings, pageWindow } from './paging.js';
+import { privacyPage, supportPage } from './public-pages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -354,53 +355,13 @@ function pushMessage(db, thread, fromId, text, photos = [], audio = null) {
   return msg;
 }
 
-/* ---------- Privacy (Traditional Chinese) ---------- */
+/* ---------- Public pages (Traditional Chinese) ---------- */
 app.get('/privacy', (_req, res) => {
-  res.type('html').send(`<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>隱私政策 · 澳賣GOT</title>
-<style>
-  body{font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif;max-width:680px;margin:0 auto;padding:32px 20px 64px;line-height:1.7;color:#111;background:#fff}
-  h1{font-size:22px;margin:0 0 8px}
-  h2{font-size:16px;margin:28px 0 8px}
-  p,li{font-size:14px;color:#333}
-  .muted{color:#767676;font-size:13px}
-</style>
-</head>
-<body>
-  <h1>澳賣GOT 隱私政策</h1>
-  <p class="muted">適用於澳門特別行政區 · 最後更新：2026 年 11 月</p>
-  <p>澳賣GOT（MoGOT，下稱「本服務」）是一個以鄰里議價為主的二手物品交流平台。我們重視你的個人資料，並依本政策說明蒐集、使用與保存方式。</p>
-  <h2>一、我們蒐集什麼</h2>
-  <ul>
-    <li>帳號資料：使用者名稱、個人簡介、頭像、電郵、密碼（加密儲存）。</li>
-    <li>刊登與交易相關內容：商品說明、照片、出價、交收意願、聊天訊息（文字、相片、語音）、街坊短評。語音只在你於對話內按錄音時才會向瀏覽器索取麥克風，並與該對話一併保存。</li>
-    <li>見面安排：雙方自行填寫的見面時間、地點與備註。平台不代為保管物品或貨款。</li>
-    <li>通知：若你開啟提醒，我們會保存裝置權杖，以便日後發送訊息與出價通知。未設定推播憑證時，提醒只在你開啟應用時於應用內顯示。</li>
-    <li>裝置與技術資料：基本日誌（例如 IP、瀏覽器類型），用於維運與防止濫用。</li>
-  </ul>
-  <h2>二、用途</h2>
-  <ul>
-    <li>提供註冊登入、刊登、議價、訊息、見面安排與你開啟的提醒。</li>
-    <li>維護平台安全、防詐騙與不當內容。</li>
-    <li>依法律要求配合主管機關。</li>
-  </ul>
-  <h2>三、分享與披露</h2>
-  <p>我們不會出售你的個人資料。僅在提供服務所必需（例如顯示賣家暱稱給買家）、經你同意、或法律要求時，才會披露相關資訊。交收請在安全公開場所進行，切勿分享敏感證件或銀行資料。</p>
-  <h2>四、保存與安全</h2>
-  <p>資料保存在我們的伺服器（目前為應用程式後端資料庫）。密碼以雜湊方式儲存。請妥善保管登入憑證；若懷疑帳號被盜用，請立即更改密碼並聯絡我們。</p>
-  <h2>五、你的權利</h2>
-  <p>你可要求查閱、更正或刪除帳號相關資料（法律另有規定者除外）。刪除帳號後，公開刊登與對話紀錄可能依法或營運需要在合理期間內保留備份。</p>
-  <h2>六、兒童</h2>
-  <p>本服務不針對 16 歲以下人士。若發現相關帳號，我們可能予以停用。</p>
-  <h2>七、聯絡</h2>
-  <p>關於隱私事宜，請電郵至 <strong>privacy@aomai.got</strong>（示範聯絡，上架前請改為真實信箱）。</p>
-  <p class="muted">本政策可能不時更新；重大變更將於應用內或本頁公告。</p>
-</body>
-</html>`);
+  res.type('html').send(privacyPage());
+});
+
+app.get('/support', (_req, res) => {
+  res.type('html').send(supportPage());
 });
 
 app.get('/api/health', (_req, res) => {
@@ -1206,7 +1167,12 @@ app.get('/api/stats', auth, (req, res) => {
 const DIST = path.resolve(__dirname, '../dist');
 app.use(express.static(DIST));
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path === '/privacy') {
+  if (
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/uploads') ||
+    req.path === '/privacy' ||
+    req.path === '/support'
+  ) {
     return next();
   }
   res.sendFile(path.join(DIST, 'index.html'), (err) => {
@@ -1222,5 +1188,6 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`澳賣GOT API http://127.0.0.1:${PORT}`);
   console.log(`Privacy  http://127.0.0.1:${PORT}/privacy`);
+  console.log(`Support  http://127.0.0.1:${PORT}/support`);
   console.log(`Demo     demo@aomai.got / demo1234`);
 });

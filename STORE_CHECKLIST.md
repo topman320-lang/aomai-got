@@ -4,7 +4,9 @@ Bundle ID／Application ID：**`com.aomai.got`**
 顯示名稱：**澳賣GOT**  
 英文名稱：**MoGOT**  
 網站：<https://aomai-got.onrender.com>  
+支援：<https://aomai-got.onrender.com/support>（`mogot.app@gmail.com`）  
 隱私政策：<https://aomai-got.onrender.com/privacy>  
+可直接貼上的 Connect 文案：`docs/APP_STORE.md`  
 示範帳號：`demo@aomai.got` / `demo1234`
 
 本檔是審核文案與準備清單。沒有、也不應放上虛構的 App Store Connect 截圖。截圖請在模擬器或實機自己擷取。
@@ -49,7 +51,7 @@ Bundle ID／Application ID：**`com.aomai.got`**
 
 蒐集：名稱、簡介、頭像、電郵、密碼（雜湊）、商品說明與照片、出價、聊天、街坊短評、見面時間地點備註。若使用者開啟提醒，另存裝置權杖。伺服器有基本日誌。
 
-不做：不出售個人資料、不用資料追蹤廣告、不託管貨款、不鑑定。聯絡信箱在隱私頁仍是示範用的 `privacy@aomai.got`，送審前請改成你能收到信的地址，並同步改 `server/index.js` 的隱私頁。
+不做：不出售個人資料、不用資料追蹤廣告、不託管貨款、不鑑定。隱私頁與支援頁的聯絡信箱是 `mogot.app@gmail.com`。
 
 App Store 營養標籤可這樣對：
 
