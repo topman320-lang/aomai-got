@@ -1663,6 +1663,8 @@ html[data-theme="dark"] .bubble-row.me .bubble-time {
 }
 
 .chat-composer input {
+  position: relative;
+  z-index: 3;
   flex: 1;
   min-width: 0;
   height: 44px;
@@ -1678,6 +1680,8 @@ html[data-theme="dark"] .bubble-row.me .bubble-time {
 }
 
 .chat-send {
+  position: relative;
+  z-index: 3;
   flex: 0 0 auto;
   height: 44px;
   padding: 0 16px;
@@ -1685,6 +1689,8 @@ html[data-theme="dark"] .bubble-row.me .bubble-time {
 }
 
 .chat-mic {
+  position: relative;
+  z-index: 3;
   flex: 0 0 auto;
   width: 44px;
   height: 44px;

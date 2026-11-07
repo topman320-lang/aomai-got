@@ -97,6 +97,58 @@ export function resampleMono(samples, fromRate, toRate, maxSeconds = MAX_VOICE_S
   return out;
 }
 
+const KNOWN_AUDIO_MIMES = new Set([
+  'audio/webm',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/ogg',
+  'audio/wav',
+  'audio/wave',
+  'audio/x-wav',
+  'audio/x-m4a',
+  'audio/m4a',
+  'audio/aac',
+]);
+
+/** Container sniff for recordings whose FileReader type is empty or octet-stream. */
+export function sniffAudioMime(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'audio/webm';
+  if (b.length >= 4 && b[0] === 0x4f && b[1] === 0x67 && b[2] === 0x67 && b[3] === 0x53) return 'audio/ogg';
+  if (
+    b.length >= 12 &&
+    b[0] === 0x52 &&
+    b[1] === 0x49 &&
+    b[2] === 0x46 &&
+    b[3] === 0x46 &&
+    b[8] === 0x57 &&
+    b[9] === 0x41 &&
+    b[10] === 0x56 &&
+    b[11] === 0x45
+  ) {
+    return 'audio/wav';
+  }
+  if (b.length >= 8 && b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) return 'audio/mp4';
+  if (b.length >= 3 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) return 'audio/mpeg';
+  if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'audio/mpeg';
+  return '';
+}
+
+/** Keep a known audio type. Otherwise relabel the data URL from the file header. */
+export function coerceAudioDataUrl(dataUrl, bytes) {
+  const raw = String(dataUrl || '');
+  const header = /^data:([^,]*)/i.exec(raw);
+  if (!header) return '';
+  const mime = header[1].split(';')[0].trim().toLowerCase();
+  if (KNOWN_AUDIO_MIMES.has(mime)) return raw;
+  const sniffed = sniffAudioMime(bytes);
+  if (!sniffed) return raw;
+  const comma = raw.indexOf(',');
+  if (comma < 0) return raw;
+  return `data:${sniffed};base64${raw.slice(comma)}`;
+}
+
 /** 16-bit mono PCM WAV. Browsers that record WebM or MP4 can both play this. */
 export function encodeVoiceWav(samples, sampleRate = VOICE_SAMPLE_RATE) {
   const input = samples instanceof Float32Array ? samples : Float32Array.from(samples || []);

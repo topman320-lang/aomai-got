@@ -2,6 +2,7 @@ import { API_BASE, privacyUrl } from './api.js';
 import { listingSharePayload } from './share.js';
 import {
   MAX_VOICE_SECONDS,
+  coerceAudioDataUrl,
   encodeVoiceWav,
   formatVoiceDuration,
   mixToMono,
@@ -2661,25 +2662,41 @@ function blobToDataUrl(blob) {
 }
 
 /** Same-browser recordings are WebM or MP4. WAV plays in both Chrome and Safari. */
-async function transcodeBlobToWav(blob) {
+async function transcodeBlobToWav(blob, signal) {
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) throw new Error('NO_AUDIO');
   const ctx = new Ctx();
+  const fail = () => {
+    try {
+      ctx.close();
+    } catch {
+      /* ignore */
+    }
+  };
+  if (signal?.aborted) {
+    fail();
+    throw new Error('ABORTED');
+  }
+  signal?.addEventListener('abort', fail, { once: true });
   try {
     const raw = await blob.arrayBuffer();
+    if (signal?.aborted) throw new Error('ABORTED');
     const decoded = await ctx.decodeAudioData(raw.slice(0));
     const samples = resampleMono(mixToMono(decoded), decoded.sampleRate || 48000, 16000, MAX_VOICE_SECONDS);
     if (!samples.length) throw new Error('EMPTY');
     return new Blob([encodeVoiceWav(samples, 16000)], { type: 'audio/wav' });
   } finally {
-    if (typeof ctx.close === 'function') {
-      try {
-        await ctx.close();
-      } catch {
-        /* ignore */
-      }
-    }
+    fail();
   }
+}
+
+function blobHeader(blob) {
+  return blob.slice(0, 16).arrayBuffer().then((buf) => new Uint8Array(buf));
+}
+
+async function audioDataUrl(blob) {
+  const [url, header] = await Promise.all([blobToDataUrl(blob), blobHeader(blob)]);
+  return coerceAudioDataUrl(url, header);
 }
 
 function stopVoicePlayback() {
@@ -2906,20 +2923,18 @@ function bindChatVoice(root, threadId) {
     rec.stopping = true;
     rec.discard = discard;
     clearInterval(rec.timer);
-    if (rec.recorder && rec.recorder.state === 'recording') {
-      try {
-        rec.recorder.requestData();
-      } catch {
-        /* Safari still flushes on stop */
-      }
-    }
     if (rec.recorder && rec.recorder.state !== 'inactive') {
       try {
         rec.recorder.stop();
-        return;
       } catch {
-        /* finish below */
+        void rec.onStop?.();
+        return;
       }
+      // Some phones never fire `stop` after MediaRecorder.stop().
+      rec.fallbackTimer = setTimeout(() => {
+        void rec.onStop?.();
+      }, 1000);
+      return;
     }
     void rec.onStop?.();
   };
@@ -2976,64 +2991,85 @@ function bindChatVoice(root, threadId) {
     recorder.addEventListener('dataavailable', (event) => {
       if (event.data && event.data.size) rec.chunks.push(event.data);
     });
+    let noteSaved = false;
     rec.onStop = async () => {
+      if (noteSaved) return;
+      noteSaved = true;
       clearInterval(rec.timer);
-      rec.stream?.getTracks().forEach((track) => {
-        try {
-          track.stop();
-        } catch {
-          /* ignore */
-        }
-      });
-      const sameThread = root.querySelector('#chat-form')?.dataset.threadId === threadId;
-      if (rec.discard || !sameThread) {
+      clearTimeout(rec.fallbackTimer);
+      const stopTracks = () => {
+        rec.stream?.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch {
+            /* ignore */
+          }
+        });
+      };
+      const sameThread = () => root.querySelector('#chat-form')?.dataset.threadId === threadId;
+      const release = () => {
         if (activeCapture === rec) activeCapture = null;
         syncLock();
-        if (sameThread) paintVoice();
+        if (sameThread()) paintVoice();
+      };
+      if (rec.discard || !sameThread()) {
+        stopTracks();
+        release();
         return;
       }
+      const startedWait = Date.now();
+      while (!rec.chunks.length && Date.now() - startedWait < 400) {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      stopTracks();
       const elapsed = (Date.now() - rec.startedAt) / 1000;
       const blob = new Blob(rec.chunks, { type: recorder.mimeType || 'audio/webm' });
-      if (elapsed < 0.4 || !blob.size) {
-        if (activeCapture === rec) activeCapture = null;
-        syncLock();
-        paintVoice();
-        toast(elapsed < 0.4 ? '錄音太短' : '錄音失敗');
+      if (rec.discard || !sameThread()) {
+        release();
         return;
       }
-      rec.processing = true;
-      paintVoice();
-      let stored = blob;
-      try {
-        stored = await transcodeBlobToWav(blob);
-      } catch {
-        stored = blob;
-      }
-      if (rec.discard || root.querySelector('#chat-form')?.dataset.threadId !== threadId) {
-        if (activeCapture === rec) activeCapture = null;
-        syncLock();
+      if (elapsed < 0.4 || !blob.size) {
+        release();
+        toast(elapsed < 0.4 ? '錄音太短' : '錄音失敗');
         return;
       }
       let dataUrl = '';
       try {
-        dataUrl = await blobToDataUrl(stored);
+        dataUrl = await audioDataUrl(blob);
       } catch {
-        if (activeCapture === rec) activeCapture = null;
-        syncLock();
-        paintVoice();
+        release();
         toast('錄音失敗');
+        return;
+      }
+      if (rec.discard || !sameThread()) {
+        release();
         return;
       }
       const previous = chatVoiceDrafts.get(threadId);
       if (previous?.url) URL.revokeObjectURL(previous.url);
-      chatVoiceDrafts.set(threadId, {
-        url: URL.createObjectURL(stored),
-        duration: Math.max(1, Math.min(MAX_VOICE_SECONDS, Math.round(Math.min(elapsed, MAX_VOICE_SECONDS)))),
+      const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const duration = Math.max(1, Math.min(MAX_VOICE_SECONDS, Math.round(Math.min(elapsed, MAX_VOICE_SECONDS))));
+      const draft = {
+        url: URL.createObjectURL(blob),
+        duration,
         dataUrl,
-      });
-      if (activeCapture === rec) activeCapture = null;
-      syncLock();
-      paintVoice();
+        token,
+        upgrade: null,
+      };
+      const ctrl = new AbortController();
+      draft.upgrade = transcodeBlobToWav(blob, ctrl.signal)
+        .then(async (wav) => {
+          const current = chatVoiceDrafts.get(threadId);
+          if (!current || current.token !== token) return;
+          current.dataUrl = await audioDataUrl(wav);
+          current.upgraded = true;
+        })
+        .catch(() => {
+          /* The original recording is already sendable. */
+        });
+      draft.upgrade.abort = () => ctrl.abort();
+      chatVoiceDrafts.set(threadId, draft);
+      release();
     };
     recorder.addEventListener('stop', () => {
       void rec.onStop?.();
@@ -3078,13 +3114,27 @@ function bindChatVoice(root, threadId) {
   paintVoice();
 
   return {
-    payload() {
+    async payload() {
       const draft = chatVoiceDrafts.get(threadId);
       if (!draft?.dataUrl) return null;
-      return { data: draft.dataUrl, duration: draft.duration };
+      if (draft.upgrade && !draft.upgraded) {
+        await Promise.race([
+          draft.upgrade,
+          new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]);
+        if (!draft.upgraded) draft.upgrade.abort?.();
+      }
+      const current = chatVoiceDrafts.get(threadId);
+      if (!current?.dataUrl) return null;
+      return { data: current.dataUrl, duration: current.duration };
     },
     discard() {
       const draft = chatVoiceDrafts.get(threadId);
+      try {
+        draft?.upgrade?.abort?.();
+      } catch {
+        /* ignore */
+      }
       if (draft?.url) URL.revokeObjectURL(draft.url);
       chatVoiceDrafts.delete(threadId);
     },
@@ -3398,12 +3448,20 @@ async function renderChat(threadId, token = nextView()) {
       toast('請先停止錄音');
       return;
     }
-    const audio = voice.payload();
+    sending = true;
+    let audio = null;
+    try {
+      audio = await voice.payload();
+    } catch (err) {
+      sending = false;
+      errToast(err, '送出失敗');
+      return;
+    }
     if (!text && !photos.length && !audio) {
+      sending = false;
       toast('請輸入訊息、加上相片或錄音');
       return;
     }
-    sending = true;
     try {
       await sendMessage(threadId, text, photos, audio);
     } catch (err) {
