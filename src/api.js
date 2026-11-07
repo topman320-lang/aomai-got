@@ -122,7 +122,7 @@ export const ListingsApi = {
     api(`/api/listings/${encodeURIComponent(id)}/want`, { method: 'POST', auth: true }),
   unwant: (id) =>
     api(`/api/listings/${encodeURIComponent(id)}/want`, { method: 'DELETE', auth: true }),
-  offers: (id) => api(`/api/listings/${encodeURIComponent(id)}/offers`, { auth: 'if' }),
+  offers: (id) => api(`/api/listings/${encodeURIComponent(id)}/offers`, { auth: true }),
   review: (id, payload) =>
     api(`/api/listings/${encodeURIComponent(id)}/reviews`, { method: 'POST', body: payload, auth: true }),
   createOffer: (id, payload) =>

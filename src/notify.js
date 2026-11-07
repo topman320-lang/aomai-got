@@ -1,5 +1,5 @@
 import { DevicesApi } from './api.js';
-import { isLoggedIn, refreshNotices } from './store.js';
+import { isLoggedIn, refreshNotices, sessionGeneration } from './store.js';
 
 const CURSOR_KEY = 'aomai-notice-cursor';
 
@@ -143,17 +143,20 @@ async function showSystemNotice(notice) {
 
 async function poll() {
   if (!isLoggedIn()) return;
+  const session = sessionGeneration();
   let notices = [];
   try {
     notices = await refreshNotices();
   } catch {
     return;
   }
+  if (session !== sessionGeneration() || !isLoggedIn()) return;
   let cursor = readCursor();
   const fresh = (notices || [])
     .filter((n) => !n.read && Number(n.createdAt) > cursor)
     .sort((a, b) => a.createdAt - b.createdAt);
   for (const notice of fresh) {
+    if (session !== sessionGeneration() || !isLoggedIn()) return;
     cursor = Math.max(cursor, Number(notice.createdAt) || cursor);
     if (onArrive) onArrive(notice);
     showSystemNotice(notice);
