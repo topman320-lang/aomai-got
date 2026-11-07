@@ -17,7 +17,6 @@ import {
 
 export const CATEGORIES = [
   '全部',
-  '潮流',
   '服飾',
   '美妝',
   '數碼',
@@ -25,6 +24,7 @@ export const CATEGORIES = [
   '家居',
   '運動',
   '母嬰',
+  '玩具',
   '遊戲',
   '卡牌',
   '寵物用品',
@@ -495,8 +495,11 @@ export async function markNoticesRead(ids) {
   return state.notices;
 }
 
-export async function sendMessage(threadId, text) {
-  const { message, thread } = await ThreadsApi.send(threadId, text);
+export async function sendMessage(threadId, text, photos = []) {
+  const { message, thread } = await ThreadsApi.send(threadId, {
+    text,
+    photos: Array.isArray(photos) ? photos : [],
+  });
   upsertThread(thread);
   syncBadges();
   return message;

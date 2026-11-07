@@ -2,7 +2,6 @@
  * Never describes platform authentication, appraisal, or escrow. */
 
 const GUIDE = {
-  潮流: 400,
   服飾: 80,
   美妝: 60,
   數碼: 500,
@@ -10,6 +9,7 @@ const GUIDE = {
   家居: 200,
   運動: 100,
   母嬰: 180,
+  玩具: 120,
   其他: 80,
 };
 

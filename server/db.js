@@ -181,6 +181,10 @@ export function normalizeStoredUploads(db) {
     if (!listing || !Array.isArray(listing.photos)) continue;
     listing.photos = listing.photos.map((photo) => rewrite(photo));
   }
+  for (const message of db.messages || []) {
+    if (!message || !Array.isArray(message.photos)) continue;
+    message.photos = message.photos.map((photo) => rewrite(photo));
+  }
   return changed;
 }
 
@@ -223,6 +227,21 @@ export function saveAvatarDataUrl(dataUrl) {
   return `/uploads/${name}`;
 }
 
+/** Dropped picker labels. Stored listings move to the closest category that remains. */
+const CATEGORY_MOVES = { 潮流: '服飾' };
+
+export function migrateListingCategories(db) {
+  if (!db) return false;
+  let changed = false;
+  for (const listing of db.listings || []) {
+    const next = listing && CATEGORY_MOVES[listing.category];
+    if (!next) continue;
+    listing.category = next;
+    changed = true;
+  }
+  return changed;
+}
+
 export function pickTone(title = '') {
   const tones = ['#eceae6', '#d8d4cc', '#e4e4e4', '#ddd6c8', '#cfcfcf', '#f0eeea'];
   let n = 0;
@@ -232,7 +251,6 @@ export function pickTone(title = '') {
 
 export function pickEmoji(category) {
   const map = {
-    潮流: '✨',
     服飾: '👕',
     美妝: '💄',
     數碼: '📱',
@@ -240,6 +258,7 @@ export function pickEmoji(category) {
     家居: '🪑',
     運動: '🏀',
     母嬰: '🍼',
+    玩具: '🧸',
     遊戲: '🎮',
     卡牌: '🃏',
     寵物用品: '🐾',
@@ -250,10 +269,18 @@ export function pickEmoji(category) {
   return map[category] || '📦';
 }
 
+/** Listing photo cap. The sell form and POST /api/listings use the same number. */
+export const MAX_LISTING_PHOTOS = 10;
+
+/** Images attached to one chat message. */
+export const MAX_MESSAGE_PHOTOS = 4;
+
 /** Save data URL photos to disk. Always returns relative /uploads paths (or an external URL). */
-export function savePhotos(photos = []) {
+export function savePhotos(photos = [], max = MAX_LISTING_PHOTOS) {
+  const limit = Number.isInteger(max) && max > 0 ? max : MAX_LISTING_PHOTOS;
   const out = [];
-  for (const p of (photos || []).slice(0, 3)) {
+  for (const p of photos || []) {
+    if (out.length >= limit) break;
     if (typeof p !== 'string' || !p) continue;
     const existing = uploadPath(p);
     if (existing) {

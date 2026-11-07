@@ -96,7 +96,7 @@ const DEMO_LISTINGS = [
   {
     title: '限定聯名波鞋 42',
     price: 980,
-    category: '潮流',
+    category: '服飾',
     location: '中區',
     condition: '幾乎全新',
     description: '只著過兩次，盒裝齊全。可議，中區交收。',
@@ -201,7 +201,7 @@ const DEMO_LISTINGS = [
   {
     title: '黑色連帽衞衣 L',
     price: 220,
-    category: '潮流',
+    category: '服飾',
     location: '中區',
     condition: '幾乎全新',
     description: '街頭基本款，著過幾次，無縮水。帽繩與口袋齊全。中區面交。',
@@ -214,7 +214,7 @@ const DEMO_LISTINGS = [
   {
     title: '日系帆布斜孭袋',
     price: 260,
-    category: '潮流',
+    category: '服飾',
     location: '氹仔',
     condition: '良好',
     description: '淺米色，放得下平板和水樽。背帶可調，內袋乾淨。氹仔可面交。',
@@ -227,7 +227,7 @@ const DEMO_LISTINGS = [
   {
     title: '限定棒球帽 吊牌未剪',
     price: 180,
-    category: '潮流',
+    category: '服飾',
     location: '中區',
     condition: '全新',
     description: '買重碼，吊牌未剪，帽形還新。不議價，中區交收。',
@@ -241,7 +241,7 @@ const DEMO_LISTINGS = [
   {
     title: '925 銀鏈 中性款',
     price: 150,
-    category: '潮流',
+    category: '服飾',
     location: '澳門 · 附近',
     condition: '良好',
     description: '日常佩戴，扣環正常，無明顯氧化。鏈長約 50cm。可議，約在人多的地方交。',

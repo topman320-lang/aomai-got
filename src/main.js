@@ -1,4 +1,5 @@
 import { API_BASE, privacyUrl } from './api.js';
+import { listingSharePayload } from './share.js';
 import { enableNotifications, notifyStatusText, watchNotices } from './notify.js';
 import {
   CATEGORIES,
@@ -374,6 +375,9 @@ function tabbar(active) {
     </nav>`;
 }
 
+const MAX_LISTING_PHOTOS = 10;
+const MAX_MESSAGE_PHOTOS = 4;
+const chatPhotoDrafts = new Map();
 const TRUST_FOOTNOTE = '街坊之間的成交與評價，平台不鑑定、不代收款。';
 const SCAM_TIP = '建議面交，當面睇清楚先付款，唔好預先轉帳。平台唔託管貨款，亦唔鑑定真偽。';
 
@@ -715,7 +719,11 @@ function priceDraftNumber(raw) {
 
 function readHomeQuery() {
   const q = (sessionStorage.getItem('aomai-q') || '').trim();
-  const cat = sessionStorage.getItem('aomai-cat') || '全部';
+  let cat = sessionStorage.getItem('aomai-cat') || '全部';
+  if (!CATEGORIES.includes(cat)) {
+    cat = '全部';
+    sessionStorage.setItem('aomai-cat', cat);
+  }
   const minRaw = readPriceDraft('aomai-min');
   const maxRaw = readPriceDraft('aomai-max');
   const min = priceDraftNumber(minRaw);
@@ -1632,6 +1640,93 @@ function bindReviewForm(listing, onDone) {
   });
 }
 
+function shareCancelled(err) {
+  const name = String(err?.name || '');
+  const message = String(err?.message || err || '');
+  return name === 'AbortError' || /cancel/i.test(message);
+}
+
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement('textarea');
+      area.value = value;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function openShareFallback(root, payload) {
+  const sheet = root.querySelector('#share-fallback');
+  if (!sheet) return;
+  const lead = sheet.querySelector('[data-share-lead]');
+  const urlEl = sheet.querySelector('[data-share-url]');
+  if (lead) lead.textContent = payload.preview;
+  if (urlEl) urlEl.textContent = payload.url;
+  sheet.hidden = false;
+}
+
+function bindListingShare(root, listing) {
+  const payload = listingSharePayload(listing, window.location);
+  root.querySelector('#share-listing')?.addEventListener('click', async () => {
+    try {
+      const { Share } = await import('@capacitor/share');
+      const can = await Share.canShare();
+      if (can?.value) {
+        await Share.share({
+          title: payload.title,
+          text: payload.text,
+          url: payload.url,
+          dialogTitle: payload.dialogTitle,
+        });
+        return;
+      }
+    } catch (err) {
+      if (shareCancelled(err)) return;
+    }
+    openShareFallback(root, payload);
+  });
+
+  const sheet = root.querySelector('#share-fallback');
+  sheet?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-share]');
+    if (!btn) {
+      if (e.target === sheet) sheet.hidden = true;
+      return;
+    }
+    const kind = btn.dataset.share;
+    if (kind === 'close') {
+      sheet.hidden = true;
+      return;
+    }
+    if (kind === 'copy') {
+      const ok = await copyText(payload.url);
+      toast(ok ? '已複製連結' : '無法複製，請長按連結');
+      return;
+    }
+    const href =
+      kind === 'whatsapp'
+        ? `https://wa.me/?text=${encodeURIComponent(payload.text)}`
+        : kind === 'facebook'
+          ? `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(payload.url)}`
+          : '';
+    if (!href) return;
+    window.open(href, '_blank', 'noopener,noreferrer');
+  });
+}
+
 async function renderDetail(id, token = nextView()) {
   const state = getState();
   let l = getListing(id);
@@ -1728,6 +1823,7 @@ async function renderDetail(id, token = nextView()) {
     <header class="topbar">
       <button class="back" type="button" data-go="home" aria-label="返回">←</button>
       <h1>商品詳情</h1>
+      <button class="topbar-share" type="button" id="share-listing">分享</button>
     </header>
     ${galleryHtml(l, photos)}
     <section class="price-block">
@@ -1762,10 +1858,21 @@ async function renderDetail(id, token = nextView()) {
     </div>
     <div class="actionbar">
       ${actionButtons}
+    </div>
+    <div class="share-fallback" id="share-fallback" hidden>
+      <div class="share-fallback-card" role="dialog" aria-label="分享">
+        <p class="share-fallback-lead" data-share-lead></p>
+        <p class="share-fallback-url" data-share-url></p>
+        <button class="btn ghost" type="button" data-share="copy">複製連結</button>
+        <button class="btn ghost" type="button" data-share="whatsapp">WhatsApp</button>
+        <button class="btn ghost" type="button" data-share="facebook">Facebook</button>
+        <button class="btn primary" type="button" data-share="close">取消</button>
+      </div>
     </div>`;
 
   app.innerHTML = shell(content, { noTab: true, screenClass: 'docked' });
   bindGallery(photos);
+  bindListingShare(app, l);
   bindOfferStatus(app, { onDone: () => renderDetail(id) });
   app.querySelector('#go-bargain')?.addEventListener('click', () => openOfferSheet(l));
   app.querySelector('#go-thread')?.addEventListener('click', () => {
@@ -1882,7 +1989,7 @@ async function renderBargain(id, token = nextView()) {
 
 function renderPost(token = nextView()) {
   if (!requireAuth('post')) return;
-  const photos = ['', '', ''];
+  const photos = Array.from({ length: MAX_LISTING_PHOTOS }, () => '');
   let photoBusy = false;
   let step = 0;
   let hint = null;
@@ -1904,9 +2011,8 @@ function renderPost(token = nextView()) {
     const row = app.querySelector('#photo-row');
     const actions = app.querySelector('#photo-actions');
     if (!row) return;
-    row.innerHTML = [0, 1, 2]
-      .map((i) => {
-        const src = photos[i];
+    row.innerHTML = photos
+      .map((src, i) => {
         // Album input: no `capture`. That attribute forces the camera and
         // hides the photo library on iOS Safari, mobile Safari, and many WebViews.
         // The input itself is the hit target (inside a label) so the tap is a real gesture.
@@ -1954,10 +2060,12 @@ function renderPost(token = nextView()) {
       const count = photos.filter(Boolean).length;
       hintText.textContent =
         count === 0
-          ? '至少一張相片。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。'
-          : count === 1
-            ? '已有 1 張。再加側面或瑕疵會更清楚，仍然可以繼續。'
-            : `已有 ${count} 張。多角度會幫買家睇清楚。`;
+          ? `至少一張相片，最多 ${MAX_LISTING_PHOTOS} 張。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。`
+          : count >= MAX_LISTING_PHOTOS
+            ? `已有 ${count} 張，已到上限。`
+            : count === 1
+              ? '已有 1 張。再加側面或瑕疵會更清楚，仍然可以繼續。'
+              : `已有 ${count} 張。多角度會幫買家睇清楚。`;
     }
   };
 
@@ -1996,7 +2104,7 @@ function renderPost(token = nextView()) {
       const slotAttr = input.hasAttribute('data-slot') ? Number(input.getAttribute('data-slot')) : -1;
       const targets = planPhotoTargets(photos, camera ? -1 : slotAttr, chosen.length);
       if (!targets.length) {
-        toast('最多 3 張照片');
+        toast(`最多 ${MAX_LISTING_PHOTOS} 張照片`);
         return;
       }
       photoBusy = true;
@@ -2020,7 +2128,7 @@ function renderPost(token = nextView()) {
         toast('無法讀取圖片');
         return;
       }
-      if (images.length > targets.length) toast(`已加入 ${added} 張（最多 3 張）`);
+      if (images.length > targets.length) toast(`已加入 ${added} 張（最多 ${MAX_LISTING_PHOTOS} 張）`);
       else if (added > 1) toast(`已加入 ${added} 張照片`);
       else toast('已加入照片');
     });
@@ -2193,9 +2301,9 @@ function renderPost(token = nextView()) {
     if (step === 0) {
       fields = `
         <div class="field" id="photo-field">
-          <label>相片（至少 1 張，最多 3 張）</label>
+          <label>相片（至少 1 張，最多 ${MAX_LISTING_PHOTOS} 張）</label>
           <div class="photo-row" id="photo-row"></div>
-          <p class="photo-hint" id="photo-hint-text">至少一張相片。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。</p>
+          <p class="photo-hint" id="photo-hint-text">至少一張相片，最多 ${MAX_LISTING_PHOTOS} 張。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。</p>
           <div class="photo-actions" id="photo-actions"></div>
         </div>
         <div class="field">
@@ -2416,6 +2524,66 @@ function formatMsgTime(ts) {
   }
 }
 
+const chatViewer = { photos: [], index: 0 };
+
+function ensureChatViewer() {
+  let viewer = document.querySelector('#chat-viewer');
+  if (viewer) return viewer;
+  viewer = document.createElement('div');
+  viewer.id = 'chat-viewer';
+  viewer.className = 'chat-viewer';
+  viewer.hidden = true;
+  viewer.innerHTML = `
+    <button type="button" class="chat-viewer-close" aria-label="關閉">×</button>
+    <button type="button" class="gallery-nav prev" data-chat-step="-1" aria-label="上一張">‹</button>
+    <img alt="" />
+    <button type="button" class="gallery-nav next" data-chat-step="1" aria-label="下一張">›</button>
+    <span class="gallery-count"></span>`;
+  viewer.addEventListener('click', (e) => {
+    if (e.target.closest('.gallery-nav, .gallery-count')) return;
+    viewer.hidden = true;
+  });
+  viewer.querySelectorAll('[data-chat-step]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const len = chatViewer.photos.length;
+      if (len < 2) return;
+      chatViewer.index = (chatViewer.index + Number(btn.dataset.chatStep) + len) % len;
+      paintChatViewer();
+    });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') viewer.hidden = true;
+  });
+  document.body.appendChild(viewer);
+  return viewer;
+}
+
+function paintChatViewer() {
+  const viewer = ensureChatViewer();
+  const photos = chatViewer.photos;
+  const index = photos.length ? Math.min(chatViewer.index, photos.length - 1) : 0;
+  chatViewer.index = index;
+  const img = viewer.querySelector('img');
+  if (img) img.src = photos[index] || '';
+  const multi = photos.length > 1;
+  viewer.querySelectorAll('.gallery-nav').forEach((btn) => {
+    btn.hidden = !multi;
+  });
+  const count = viewer.querySelector('.gallery-count');
+  if (count) {
+    count.hidden = !multi;
+    count.textContent = multi ? `${index + 1} / ${photos.length}` : '';
+  }
+  viewer.hidden = photos.length === 0;
+}
+
+function openChatViewer(photos, index) {
+  chatViewer.photos = photos.filter(Boolean);
+  chatViewer.index = index;
+  paintChatViewer();
+}
+
 async function renderChat(threadId, token = nextView()) {
   if (!requireAuth(`chat/${threadId}`)) return;
   let thread;
@@ -2449,10 +2617,23 @@ async function renderChat(threadId, token = nextView()) {
     ? messages
         .map((m) => {
           const mine = m.fromId === meId;
+          const photos = Array.isArray(m.photos) ? m.photos.filter(Boolean) : [];
+          const photoHtml = photos.length
+            ? `<div class="bubble-photos${photos.length === 1 ? ' one' : ''}">${photos
+                .map((p) => {
+                  const src = mediaSrc(p);
+                  return `<button type="button" class="bubble-photo" data-chat-photo="${escapeAttr(src)}" aria-label="放大相片"><img src="${escapeAttr(src)}" alt="" /></button>`;
+                })
+                .join('')}</div>`
+            : '';
+          const textHtml = m.text
+            ? `<div class="bubble-text">${escapeHtml(m.text).replaceAll('\n', '<br/>')}</div>`
+            : '';
           return `
           <div class="bubble-row ${mine ? 'me' : 'peer'}">
             <div class="bubble">
-              <div class="bubble-text">${escapeHtml(m.text).replaceAll('\n', '<br/>')}</div>
+              ${photoHtml}
+              ${textHtml}
               <div class="bubble-time">${formatMsgTime(m.createdAt)}</div>
             </div>
           </div>`;
@@ -2488,8 +2669,15 @@ async function renderChat(threadId, token = nextView()) {
     ${chatTip}
     <div class="chat-log" id="chat-log">${bubbles}</div>
     <form class="chat-composer" id="chat-form">
-      <input id="chat-input" type="text" lang="zh-Hant" inputmode="text" autocomplete="off" enterkeyhint="send" placeholder="輸入訊息…" maxlength="500" />
-      <button class="btn primary chat-send" type="submit">送出</button>
+      <div class="chat-pending" id="chat-pending" hidden></div>
+      <div class="chat-compose-row">
+        <label class="chat-attach">
+          <span class="chat-attach-mark" aria-hidden="true">＋</span>
+          <input id="chat-photo" class="chat-file-input" type="file" accept="image/*" multiple aria-label="傳送相片" />
+        </label>
+        <input id="chat-input" type="text" lang="zh-Hant" inputmode="text" autocomplete="off" enterkeyhint="send" placeholder="輸入訊息…" maxlength="500" />
+        <button class="btn primary chat-send" type="submit">送出</button>
+      </div>
     </form>`;
 
   app.innerHTML = shell(content, { noTab: true });
@@ -2497,8 +2685,45 @@ async function renderChat(threadId, token = nextView()) {
 
   const log = app.querySelector('#chat-log');
   if (log) log.scrollTop = log.scrollHeight;
+  log?.querySelectorAll('[data-chat-photo]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const group = [...btn.parentElement.querySelectorAll('[data-chat-photo]')].map((el) => el.dataset.chatPhoto);
+      openChatViewer(group, group.indexOf(btn.dataset.chatPhoto));
+    });
+  });
 
   const input = app.querySelector('#chat-input');
+  const photoInput = app.querySelector('#chat-photo');
+  if (photoInput) {
+    photoInput.removeAttribute('capture');
+    photoInput.multiple = true;
+  }
+  let photoBusy = false;
+  let sending = false;
+
+  const paintPending = () => {
+    const row = app.querySelector('#chat-pending');
+    if (!row) return;
+    const photos = chatPhotoDrafts.get(threadId) || [];
+    row.hidden = photos.length === 0;
+    row.replaceChildren();
+    photos.forEach((src, i) => {
+      const slot = document.createElement('div');
+      slot.className = 'chat-pending-slot';
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = '';
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'photo-clear';
+      clear.dataset.pendingClear = String(i);
+      clear.setAttribute('aria-label', '移除相片');
+      clear.textContent = '×';
+      slot.append(img, clear);
+      row.append(slot);
+    });
+  };
+  paintPending();
   const draftKey = `aomai-chat-draft-${threadId}`;
   const savedDraft = sessionStorage.getItem(draftKey);
   if (input && savedDraft) {
@@ -2509,18 +2734,86 @@ async function renderChat(threadId, token = nextView()) {
     if (input) input.setSelectionRange(input.value.length, input.value.length);
   } catch (_) {}
 
-  app.querySelector('#chat-form')?.addEventListener('submit', async (e) => {
+  const form = app.querySelector('#chat-form');
+  form?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-pending-clear]');
+    if (!btn || !form.contains(btn)) return;
+    e.preventDefault();
+    const idx = Number(btn.getAttribute('data-pending-clear'));
+    const photos = chatPhotoDrafts.get(threadId) || [];
+    if (!Number.isInteger(idx) || idx < 0 || idx >= photos.length) return;
+    photos.splice(idx, 1);
+    chatPhotoDrafts.set(threadId, photos);
+    paintPending();
+  });
+  form?.addEventListener('change', async (e) => {
+    const fileInput = e.target.closest?.('input[type="file"]');
+    if (!fileInput || !form.contains(fileInput)) return;
+    const picked = Array.from(fileInput.files || []);
+    if (!picked.length) return;
+    fileInput.value = '';
+    if (photoBusy || sending) {
+      toast('請稍候');
+      return;
+    }
+    const images = picked.filter(isLikelyImageFile);
+    if (!images.length) {
+      toast('請選擇圖片');
+      return;
+    }
+    const existing = chatPhotoDrafts.get(threadId) || [];
+    const room = MAX_MESSAGE_PHOTOS - existing.length;
+    if (room <= 0) {
+      toast(`每則訊息最多 ${MAX_MESSAGE_PHOTOS} 張相片`);
+      return;
+    }
+    const chosen = images.slice(0, room);
+    photoBusy = true;
+    toast('壓縮圖片中…');
+    let added = 0;
+    try {
+      for (const file of chosen) {
+        try {
+          existing.push(await compressImageFile(file));
+          added += 1;
+        } catch (err) {
+          if (err?.message === 'TOO_LARGE') toast('圖片太大，請改選一張');
+        }
+      }
+    } finally {
+      photoBusy = false;
+      chatPhotoDrafts.set(threadId, existing);
+      paintPending();
+    }
+    if (!added) {
+      toast('無法讀取圖片');
+      return;
+    }
+    if (images.length > chosen.length) toast(`已加入 ${added} 張（每則最多 ${MAX_MESSAGE_PHOTOS} 張）`);
+  });
+  form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (input?.dataset.composing === '1') return;
+    if (photoBusy || sending) {
+      toast('請稍候');
+      return;
+    }
     const text = String(input?.value || '').trim();
-    if (!text) return;
+    const photos = [...(chatPhotoDrafts.get(threadId) || [])];
+    if (!text && !photos.length) {
+      toast('請輸入訊息或加上相片');
+      return;
+    }
+    sending = true;
     try {
-      await sendMessage(threadId, text);
+      await sendMessage(threadId, text, photos);
     } catch (err) {
+      sending = false;
       errToast(err, '送出失敗');
       return;
     }
-    input.value = '';
+    chatPhotoDrafts.delete(threadId);
+    if (input) input.value = '';
     sessionStorage.removeItem(draftKey);
     renderChat(threadId);
   });
