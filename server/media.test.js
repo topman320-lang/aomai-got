@@ -13,6 +13,7 @@ const {
   normalizeStoredUploads,
   presentAvatar,
   publicBaseFromRequest,
+  MAX_LISTING_PHOTOS,
   savePhotos,
   uploadPath,
   usablePublicBase,
@@ -90,4 +91,15 @@ test('new uploads are stored as relative /uploads paths', () => {
   assert.equal(saved[1], '/uploads/img-aee50efe2689.jpg');
   assert.equal(fs.existsSync(path.join(process.env.UPLOADS_DIR, path.basename(saved[0]))), true);
   assert.equal(saved.some((p) => p.includes('127.0.0.1')), false);
+});
+
+test('savePhotos keeps a single photo and caps a batch at 10', () => {
+  assert.equal(MAX_LISTING_PHOTOS, 10);
+  const png =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  assert.equal(savePhotos([png]).length, 1);
+  assert.equal(savePhotos(['', png, '']).length, 1);
+  assert.equal(savePhotos(Array.from({ length: MAX_LISTING_PHOTOS }, () => png)).length, 10);
+  assert.equal(savePhotos(Array.from({ length: MAX_LISTING_PHOTOS + 2 }, () => png)).length, 10);
+  assert.equal(savePhotos(['', ...Array.from({ length: 12 }, () => png)]).length, 10);
 });

@@ -374,6 +374,7 @@ function tabbar(active) {
     </nav>`;
 }
 
+const MAX_LISTING_PHOTOS = 10;
 const TRUST_FOOTNOTE = '街坊之間的成交與評價，平台不鑑定、不代收款。';
 const SCAM_TIP = '建議面交，當面睇清楚先付款，唔好預先轉帳。平台唔託管貨款，亦唔鑑定真偽。';
 
@@ -1882,7 +1883,7 @@ async function renderBargain(id, token = nextView()) {
 
 function renderPost(token = nextView()) {
   if (!requireAuth('post')) return;
-  const photos = ['', '', ''];
+  const photos = Array.from({ length: MAX_LISTING_PHOTOS }, () => '');
   let photoBusy = false;
   let step = 0;
   let hint = null;
@@ -1904,9 +1905,8 @@ function renderPost(token = nextView()) {
     const row = app.querySelector('#photo-row');
     const actions = app.querySelector('#photo-actions');
     if (!row) return;
-    row.innerHTML = [0, 1, 2]
-      .map((i) => {
-        const src = photos[i];
+    row.innerHTML = photos
+      .map((src, i) => {
         // Album input: no `capture`. That attribute forces the camera and
         // hides the photo library on iOS Safari, mobile Safari, and many WebViews.
         // The input itself is the hit target (inside a label) so the tap is a real gesture.
@@ -1954,10 +1954,12 @@ function renderPost(token = nextView()) {
       const count = photos.filter(Boolean).length;
       hintText.textContent =
         count === 0
-          ? '至少一張相片。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。'
-          : count === 1
-            ? '已有 1 張。再加側面或瑕疵會更清楚，仍然可以繼續。'
-            : `已有 ${count} 張。多角度會幫買家睇清楚。`;
+          ? `至少一張相片，最多 ${MAX_LISTING_PHOTOS} 張。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。`
+          : count >= MAX_LISTING_PHOTOS
+            ? `已有 ${count} 張，已到上限。`
+            : count === 1
+              ? '已有 1 張。再加側面或瑕疵會更清楚，仍然可以繼續。'
+              : `已有 ${count} 張。多角度會幫買家睇清楚。`;
     }
   };
 
@@ -1996,7 +1998,7 @@ function renderPost(token = nextView()) {
       const slotAttr = input.hasAttribute('data-slot') ? Number(input.getAttribute('data-slot')) : -1;
       const targets = planPhotoTargets(photos, camera ? -1 : slotAttr, chosen.length);
       if (!targets.length) {
-        toast('最多 3 張照片');
+        toast(`最多 ${MAX_LISTING_PHOTOS} 張照片`);
         return;
       }
       photoBusy = true;
@@ -2020,7 +2022,7 @@ function renderPost(token = nextView()) {
         toast('無法讀取圖片');
         return;
       }
-      if (images.length > targets.length) toast(`已加入 ${added} 張（最多 3 張）`);
+      if (images.length > targets.length) toast(`已加入 ${added} 張（最多 ${MAX_LISTING_PHOTOS} 張）`);
       else if (added > 1) toast(`已加入 ${added} 張照片`);
       else toast('已加入照片');
     });
@@ -2193,9 +2195,9 @@ function renderPost(token = nextView()) {
     if (step === 0) {
       fields = `
         <div class="field" id="photo-field">
-          <label>相片（至少 1 張，最多 3 張）</label>
+          <label>相片（至少 1 張，最多 ${MAX_LISTING_PHOTOS} 張）</label>
           <div class="photo-row" id="photo-row"></div>
-          <p class="photo-hint" id="photo-hint-text">至少一張相片。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。</p>
+          <p class="photo-hint" id="photo-hint-text">至少一張相片，最多 ${MAX_LISTING_PHOTOS} 張。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。</p>
           <div class="photo-actions" id="photo-actions"></div>
         </div>
         <div class="field">

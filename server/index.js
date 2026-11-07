@@ -17,6 +17,7 @@ import {
   presentAvatar,
   publicBaseFromRequest,
   publicUser,
+  MAX_LISTING_PHOTOS,
   saveAvatarDataUrl,
   savePhotos,
   uploadPath,
@@ -589,7 +590,17 @@ app.post('/api/listings', auth, (req, res) => {
   if (!title || !price || price <= 0 || !description) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '請填寫標題、價錢與描述' });
   }
-  const photos = savePhotos(req.body?.photos || []);
+  const incomingPhotos = req.body?.photos;
+  if (Array.isArray(incomingPhotos)) {
+    const photoCount = incomingPhotos.filter((p) => typeof p === 'string' && p).length;
+    if (photoCount > MAX_LISTING_PHOTOS) {
+      return res.status(400).json({
+        error: 'TOO_MANY_PHOTOS',
+        message: `最多 ${MAX_LISTING_PHOTOS} 張相片`,
+      });
+    }
+  }
+  const photos = savePhotos(incomingPhotos || []);
   if (!photos.length) {
     return res.status(400).json({ error: 'PHOTO_REQUIRED', message: '請至少上傳一張相片' });
   }

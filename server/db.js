@@ -250,10 +250,14 @@ export function pickEmoji(category) {
   return map[category] || '📦';
 }
 
+/** Listing photo cap. The sell form and POST /api/listings use the same number. */
+export const MAX_LISTING_PHOTOS = 10;
+
 /** Save data URL photos to disk. Always returns relative /uploads paths (or an external URL). */
 export function savePhotos(photos = []) {
   const out = [];
-  for (const p of (photos || []).slice(0, 3)) {
+  for (const p of photos || []) {
+    if (out.length >= MAX_LISTING_PHOTOS) break;
     if (typeof p !== 'string' || !p) continue;
     const existing = uploadPath(p);
     if (existing) {
