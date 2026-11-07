@@ -104,8 +104,9 @@ export const ListingsApi = {
     if (params.max != null && params.max !== '') qs.set('max', String(params.max));
     if (params.limit != null && params.limit !== '') qs.set('limit', String(params.limit));
     if (params.offset != null && params.offset !== '') qs.set('offset', String(params.offset));
+    if (params.mine) qs.set('mine', '1');
     const q = qs.toString();
-    return api(`/api/listings${q ? `?${q}` : ''}`, { auth: 'if' });
+    return api(`/api/listings${q ? `?${q}` : ''}`, { auth: params.mine ? true : 'if' });
   },
   get: (id) => api(`/api/listings/${encodeURIComponent(id)}`, { auth: 'if' }),
   create: (payload) => api('/api/listings', { method: 'POST', body: payload, auth: true }),

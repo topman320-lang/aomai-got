@@ -3430,7 +3430,7 @@ async function renderChat(threadId, token = nextView()) {
 }
 
 function offerRow(o, { incoming = false } = {}) {
-  const l = getListing(o.listingId);
+  const l = getListing(o.listingId) || getThreadByListing(o.listingId)?.listing;
   if (!l && !o.listingId) return '';
   const view = offerStatusView(o, incoming ? 'seller' : 'buyer');
   const dest = o.threadId ? `chat/${o.threadId}` : incoming ? `detail/${o.listingId}` : `bargain/${o.listingId}`;
@@ -3536,15 +3536,17 @@ async function renderOwned(token, { title, sold, path }) {
   const header = subHeader(title, 'me');
   app.innerHTML = shell(`${header}${skeletonGrid()}`, { tab: 'me' });
   let error = null;
+  let owned = [];
   try {
-    await refreshListings();
+    owned = await refreshListings({ mine: '1' });
   } catch (err) {
     error = err;
     errToast(err, '載入刊登失敗');
+    owned = getState().listings.filter((l) => l.sellerId === getState().me.id);
   }
   if (!isView(token)) return;
-  const list = getState()
-    .listings.filter((l) => l.sellerId === getState().me.id && isSold(l) === sold)
+  const list = owned
+    .filter((l) => isSold(l) === sold)
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const empty = sold
     ? `<div class="empty">還沒有已售物品<br/>在商品詳情可以標示已售</div>`

@@ -41,7 +41,7 @@ import {
 } from './trust.js';
 import { buildProposal, confirmProposal, findHandoff, handoffAccess, presentHandoff } from './handoff.js';
 import { addNotice, markNoticesRead, noticesFor, remotePushHook, unreadNotices } from './notices.js';
-import { pageWindow } from './paging.js';
+import { filterBrowseListings, pageWindow } from './paging.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -560,30 +560,18 @@ function priceBound(value) {
 /* ---------- Listings ---------- */
 app.get('/api/listings', optionalAuth, (req, res) => {
   const db = loadDb();
-  const q = String(req.query.q || '').trim().toLowerCase();
-  const category = String(req.query.category || '').trim();
-  const min = priceBound(req.query.min);
-  const max = priceBound(req.query.max);
-  let list = [...db.listings].sort((a, b) => b.createdAt - a.createdAt);
-  if (category && category !== '全部') {
-    list = list.filter((l) => l.category === category);
+  const mine = req.query.mine === '1' || req.query.mine === 'true';
+  if (mine && !req.user) {
+    return res.status(401).json({ error: 'UNAUTHORIZED', message: '請先登入' });
   }
-  if (q) {
-    list = list.filter((l) => {
-      const blob = `${l.title || ''}\n${l.description || ''}\n${l.location || ''}\n${l.category || ''}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }
-  if (min != null && max != null && min > max) {
-    list = [];
-  } else if (min != null || max != null) {
-    list = list.filter((l) => {
-      const price = Number(l.price);
-      if (min != null && price < min) return false;
-      if (max != null && price > max) return false;
-      return true;
-    });
-  }
+  const list = filterBrowseListings(db.listings, {
+    q: req.query.q,
+    category: req.query.category,
+    min: priceBound(req.query.min),
+    max: priceBound(req.query.max),
+    sellerId: mine ? req.user.id : '',
+    includeSold: mine,
+  });
   const viewerId = req.user?.id || '';
   const paged = pageWindow(list, req.query);
   if (paged.error) return res.status(400).json({ error: 'INVALID_INPUT', message: '頁數不正確' });
