@@ -1684,6 +1684,111 @@ html[data-theme="dark"] .bubble-row.me .bubble-time {
   width: auto;
 }
 
+.chat-mic {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--ink);
+  background: var(--bg);
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.chat-mic svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.chat-mic.is-recording {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+.chat-mic:disabled {
+  opacity: 0.45;
+}
+
+.chat-voice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.chat-voice[hidden] {
+  display: none;
+}
+
+.chat-voice audio,
+.bubble-voice audio {
+  display: none;
+}
+
+.chat-voice-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-voice-action {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--ink);
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.chat-voice-action:disabled {
+  opacity: 0.45;
+}
+
+.bubble-voice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 148px;
+}
+
+.voice-toggle {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+}
+
+.voice-dur {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-track {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  background: color-mix(in srgb, currentColor 35%, transparent);
+}
+
+.voice-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0%;
+  background: currentColor;
+}
+
 .phone:has(.chat-composer) {
   height: 100dvh;
   max-height: 100dvh;

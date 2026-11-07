@@ -495,11 +495,13 @@ export async function markNoticesRead(ids) {
   return state.notices;
 }
 
-export async function sendMessage(threadId, text, photos = []) {
-  const { message, thread } = await ThreadsApi.send(threadId, {
+export async function sendMessage(threadId, text, photos = [], audio = null) {
+  const payload = {
     text,
     photos: Array.isArray(photos) ? photos : [],
-  });
+  };
+  if (audio) payload.audio = audio;
+  const { message, thread } = await ThreadsApi.send(threadId, payload);
   upsertThread(thread);
   syncBadges();
   return message;

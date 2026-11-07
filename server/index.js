@@ -21,7 +21,9 @@ import {
   MAX_LISTING_PHOTOS,
   MAX_MESSAGE_PHOTOS,
   absolutePhotos,
+  presentAudio,
   saveAvatarDataUrl,
+  saveMessageAudio,
   savePhotos,
   uploadPath,
 } from './db.js';
@@ -253,6 +255,28 @@ function bumpOffer(db, offer) {
   db.offers = [offer, ...db.offers.filter((o) => o.id !== offer.id)];
 }
 
+function messagePreviewText(m) {
+  if (!m) return '';
+  const text = String(m.text || '').split('\n')[0];
+  if (text) return text;
+  if (m.audio && m.audio.url) return '語音訊息';
+  if (Array.isArray(m.photos) && m.photos.length) return '相片';
+  return '';
+}
+
+function messageDto(m, db, base, fromName) {
+  const from = fromName != null ? { name: fromName } : db.users.find((u) => u.id === m.fromId);
+  return {
+    id: m.id,
+    fromId: m.fromId,
+    fromName: from?.name || '',
+    text: m.text || '',
+    photos: absolutePhotos(Array.isArray(m.photos) ? m.photos : [], base),
+    audio: presentAudio(m.audio, base),
+    createdAt: m.createdAt,
+  };
+}
+
 function threadDto(thread, userId, db, req) {
   const base = publicBaseFor(req);
   const listing = db.listings.find((l) => l.id === thread.listingId);
@@ -272,20 +296,10 @@ function threadDto(thread, userId, db, req) {
     peerId: peerId || '',
     peerName: peer?.name || '街坊',
     peerAvatar: presentAvatar(peer?.avatar || '?', base),
-    preview: thread.preview || (msgs.length ? msgs[msgs.length - 1].text.split('\n')[0] : ''),
+    preview: thread.preview || messagePreviewText(msgs[msgs.length - 1]),
     time: relativeTime(thread.updatedAt || thread.createdAt),
     unread,
-    messages: msgs.map((m) => {
-      const from = db.users.find((u) => u.id === m.fromId);
-      return {
-        id: m.id,
-        fromId: m.fromId,
-        fromName: from?.name || '',
-        text: m.text || '',
-        photos: absolutePhotos(Array.isArray(m.photos) ? m.photos : [], base),
-        createdAt: m.createdAt,
-      };
-    }),
+    messages: msgs.map((m) => messageDto(m, db, base)),
     listing: listing ? listingDto(listing, db, base, userId) : null,
     offer: offer ? offerDto(offer, db, userId) : null,
   };
@@ -311,10 +325,11 @@ function ensureThread(db, listing, buyerId) {
   return thread;
 }
 
-function pushMessage(db, thread, fromId, text, photos = []) {
+function pushMessage(db, thread, fromId, text, photos = [], audio = null) {
   const body = String(text || '').trim();
   const imgs = Array.isArray(photos) ? photos.filter((p) => typeof p === 'string' && p) : [];
-  if (!body && !imgs.length) return null;
+  const voice = audio && audio.url ? { url: audio.url, duration: audio.duration } : null;
+  if (!body && !imgs.length && !voice) return null;
   const msg = {
     id: id('m-'),
     threadId: thread.id,
@@ -323,8 +338,9 @@ function pushMessage(db, thread, fromId, text, photos = []) {
     photos: imgs,
     createdAt: Date.now(),
   };
+  if (voice) msg.audio = voice;
   db.messages.push(msg);
-  thread.preview = body.split('\n')[0] || '相片';
+  thread.preview = body.split('\n')[0] || (voice ? '語音訊息' : '相片');
   thread.updatedAt = msg.createdAt;
   if (fromId === thread.buyerId) {
     thread.sellerUnread = true;
@@ -361,7 +377,7 @@ app.get('/privacy', (_req, res) => {
   <h2>一、我們蒐集什麼</h2>
   <ul>
     <li>帳號資料：使用者名稱、個人簡介、頭像、電郵、密碼（加密儲存）。</li>
-    <li>刊登與交易相關內容：商品說明、照片、出價、交收意願、聊天訊息、街坊短評。</li>
+    <li>刊登與交易相關內容：商品說明、照片、出價、交收意願、聊天訊息（文字、相片、語音）、街坊短評。語音只在你於對話內按錄音時才會向瀏覽器索取麥克風，並與該對話一併保存。</li>
     <li>見面安排：雙方自行填寫的見面時間、地點與備註。平台不代為保管物品或貨款。</li>
     <li>通知：若你開啟提醒，我們會保存裝置權杖，以便日後發送訊息與出價通知。未設定推播憑證時，提醒只在你開啟應用時於應用內顯示。</li>
     <li>裝置與技術資料：基本日誌（例如 IP、瀏覽器類型），用於維運與防止濫用。</li>
@@ -1013,7 +1029,6 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   }
   const text = String(req.body?.text || '').trim();
   const incomingPhotos = req.body?.photos;
-  let photos = [];
   if (Array.isArray(incomingPhotos)) {
     const photoCount = incomingPhotos.filter((p) => typeof p === 'string' && p).length;
     if (photoCount > MAX_MESSAGE_PHOTOS) {
@@ -1022,21 +1037,28 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
         message: `每則訊息最多 ${MAX_MESSAGE_PHOTOS} 張相片`,
       });
     }
+  }
+  const audioResult = saveMessageAudio(req.body?.audio);
+  if (audioResult.error) {
+    return res.status(400).json({ error: audioResult.error, message: audioResult.message });
+  }
+  let photos = [];
+  if (Array.isArray(incomingPhotos)) {
     photos = savePhotos(incomingPhotos, MAX_MESSAGE_PHOTOS);
   }
-  if (!text && !photos.length) {
-    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入訊息或加上相片' });
+  if (!text && !photos.length && !audioResult.audio) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入訊息、加上相片或錄音' });
   }
-  const msg = pushMessage(db, thread, req.user.id, text, photos);
+  const msg = pushMessage(db, thread, req.user.id, text, photos, audioResult.audio);
   if (!msg) {
-    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入訊息或加上相片' });
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入訊息、加上相片或錄音' });
   }
   const peerId = req.user.id === thread.buyerId ? thread.sellerId : thread.buyerId;
   notifyUser(db, {
     userId: peerId,
     kind: 'message',
     title: req.user.name || '新訊息',
-    body: (msg.text || '相片').split('\n')[0],
+    body: (msg.text || (msg.audio ? '語音訊息' : '相片')).split('\n')[0],
     href: `chat/${thread.id}`,
     refId: msg.id,
   });
@@ -1044,14 +1066,7 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   persist();
   const base = publicBaseFor(req);
   res.status(201).json({
-    message: {
-      id: msg.id,
-      fromId: msg.fromId,
-      fromName: req.user.name,
-      text: msg.text,
-      photos: absolutePhotos(msg.photos, base),
-      createdAt: msg.createdAt,
-    },
+    message: messageDto(msg, db, base, req.user.name),
     thread: threadDto(thread, req.user.id, db, req),
   });
 });
