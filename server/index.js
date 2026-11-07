@@ -27,7 +27,7 @@ import {
   savePhotos,
   uploadPath,
 } from './db.js';
-import { listingDto, normalizeHandover, seedIfEmpty } from './seed.js';
+import { listingDto, normalizeHandover, purgeSeedUsers, seedIfEmpty } from './seed.js';
 import {
   acceptedBuyerId,
   applyConfirmReceipt,
@@ -49,6 +49,7 @@ const PORT = Number(process.env.PORT || 8787);
 const JWT_SECRET = process.env.JWT_SECRET || 'aomai-got-dev-secret-change-me';
 
 seedIfEmpty();
+purgeSeedUsers();
 {
   const seeded = loadDb();
   let changed = false;
@@ -1189,5 +1190,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`澳賣GOT API http://127.0.0.1:${PORT}`);
   console.log(`Privacy  http://127.0.0.1:${PORT}/privacy`);
   console.log(`Support  http://127.0.0.1:${PORT}/support`);
-  console.log(`Demo     demo@aomai.got / demo1234`);
 });

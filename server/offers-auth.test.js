@@ -32,15 +32,8 @@ async function waitForHealth() {
   throw new Error(`API did not start (${last})`);
 }
 
-async function login(email, password) {
-  const res = await fetch(`${base}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  assert.equal(res.status, 200);
-  return res.json();
-}
+const PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 async function register(name, email) {
   const res = await fetch(`${base}/api/auth/register`, {
@@ -84,13 +77,25 @@ test('listing offers are hidden from guests and other buyers', async (t) => {
     throw new Error(`${err.message}\n${logs}`);
   }
 
-  const seller = await login('demo@aomai.got', 'demo1234');
-  const mineRes = await fetch(`${base}/api/listings?mine=1`, {
+  const seller = await register('賣家', 'seller-offers@example.com');
+  const createdRes = await fetch(`${base}/api/listings`, {
+    method: 'POST',
     headers: authHeaders(seller.token),
+    body: JSON.stringify({
+      title: '舊書三本 中文小說',
+      price: 40,
+      description: '自用小說三本，有摺角。週末可面交。',
+      category: '其他',
+      location: '氹仔',
+      condition: '有使用痕跡',
+      handover: '面交',
+      photos: [PNG],
+    }),
   });
-  assert.equal(mineRes.status, 200);
-  const mine = await mineRes.json();
-  const listing = mine.listings.find((row) => row.title === '舊書三本 中文小說' && !row.sold);
+  assert.equal(createdRes.status, 201);
+  const listing = (await createdRes.json()).listing;
+  assert.equal(listing.title, '舊書三本 中文小說');
+  assert.equal(listing.sold, false);
   assert.ok(listing?.id);
 
   const guest = await fetch(`${base}/api/listings/${listing.id}/offers`);

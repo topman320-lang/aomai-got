@@ -16,12 +16,10 @@ Listens on **http://127.0.0.1:8787**.
 
 From repo root: `npm run server` (after `npm run server:install` once).
 
-## Demo account
+## Accounts
 
-| Field | Value |
-|-------|-------|
-| Email | `demo@aomai.got` |
-| Password | `demo1234` |
+There is no built-in demo login. Register with `POST /api/auth/register`.
+On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are removed with the listings, offers, threads, messages, reviews, handoffs, wants, devices, and notices that belong to them. Other emails are left in place.
 
 ## Persistence
 

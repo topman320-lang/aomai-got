@@ -52,7 +52,7 @@ npm run dev
 
 瀏覽器打開 Vite Local URL（預設 `http://127.0.0.1:5173`）。
 
-示範登入：`demo@aomai.got` / `demo1234`
+沒有預設示範帳號。在登入頁註冊電郵與密碼即可。
 
 可選環境變數：`VITE_API_URL`（預設 `http://127.0.0.1:8787`）。
 
