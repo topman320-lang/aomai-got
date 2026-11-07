@@ -529,6 +529,13 @@ export async function setSold(listingId, sold) {
   return listing;
 }
 
+export async function confirmReceipt(listingId) {
+  const { listing } = await ListingsApi.confirmReceipt(listingId);
+  upsertListing(listing);
+  syncBadges();
+  return listing;
+}
+
 export async function addReview(listingId, payload) {
   const { review, listing } = await ListingsApi.review(listingId, payload);
   upsertListing(listing);

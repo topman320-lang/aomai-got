@@ -14,6 +14,7 @@ import {
   addWant,
   bootstrap,
   confirmHandoff,
+  confirmReceipt,
   fetchHomeListings,
   fetchUser,
   getBadges,
@@ -973,6 +974,8 @@ async function renderHome(token = nextView(), options = {}) {
 
 const uiGallery = { id: '', index: 0 };
 let offerSheetKeyHandler = null;
+let rateSellerKeyHandler = null;
+let rateSellerOnClose = null;
 
 function offerSuggestions(price) {
   const ask = Number(price) || 0;
@@ -1567,6 +1570,19 @@ function starMarks(count) {
   return `${'★'.repeat(n)}${'☆'.repeat(5 - n)}`;
 }
 
+function starPickerHtml() {
+  return `<div class="star-row" role="radiogroup" aria-label="星數">
+    ${[1, 2, 3, 4, 5]
+      .map((n) => `<button type="button" class="star" data-star="${n}" aria-label="${n} 星">☆</button>`)
+      .join('')}
+  </div>`;
+}
+
+function reviewCommentField(id) {
+  return `<label class="review-comment" for="${id}">留言（可留空）</label>
+    <textarea id="${id}" lang="zh-Hant" maxlength="80" placeholder="交收順利嗎？一句就好，最多 80 字"></textarea>`;
+}
+
 function reviewBlock(listing) {
   if (!listing?.sold) return '';
   const reviews = Array.isArray(listing.reviews) ? listing.reviews : [];
@@ -1587,12 +1603,8 @@ function reviewBlock(listing) {
   const form = listing.canReview
     ? `<div class="review-box" id="review-box">
         <div class="section-label">${listing.reviewRole === 'seller' ? '為這位買家留一句評價' : '為這位賣家留一句評價'}</div>
-        <div class="star-row" role="radiogroup" aria-label="星數">
-          ${[1, 2, 3, 4, 5]
-            .map((n) => `<button type="button" class="star" data-star="${n}" aria-label="${n} 星">☆</button>`)
-            .join('')}
-        </div>
-        <textarea id="review-text" lang="zh-Hant" maxlength="80" placeholder="交收順利嗎？一句就好，可留空"></textarea>
+        ${starPickerHtml()}
+        ${reviewCommentField('review-text')}
         <button class="btn primary" type="button" id="review-submit">送出評價</button>
         <p class="trust-footnote">這是你與對方的一句話，不是平台鑑定。</p>
       </div>`
@@ -1606,11 +1618,9 @@ function reviewBlock(listing) {
     </div>`;
 }
 
-function bindReviewForm(listing, onDone) {
-  const box = app.querySelector('#review-box');
-  if (!box) return;
+function bindStarForm(root, { textSelector, submitSelector, onSubmit }) {
   let picked = 0;
-  const stars = [...box.querySelectorAll('[data-star]')];
+  const stars = [...root.querySelectorAll('[data-star]')];
   stars.forEach((btn) => {
     btn.addEventListener('click', () => {
       picked = Number(btn.dataset.star);
@@ -1621,23 +1631,98 @@ function bindReviewForm(listing, onDone) {
       });
     });
   });
-  box.querySelector('#review-submit')?.addEventListener('click', async () => {
+  const button = root.querySelector(submitSelector);
+  button?.addEventListener('click', async () => {
     if (!picked) {
       toast('請先選星數');
       return;
     }
-    const text = String(box.querySelector('#review-text')?.value || '').trim();
-    const button = box.querySelector('#review-submit');
+    const text = String(root.querySelector(textSelector)?.value || '').trim();
+    if (Array.from(text).length > 80) {
+      toast('評價最多 80 字');
+      return;
+    }
     if (button) button.disabled = true;
     try {
-      await addReview(listing.id, { stars: picked, text });
-      toast('已送出評價');
-      if (onDone) onDone();
+      await onSubmit({ stars: picked, text });
     } catch (err) {
       if (button) button.disabled = false;
       errToast(err, '評價送出失敗');
     }
   });
+}
+
+function bindReviewForm(listing, onDone) {
+  const box = app.querySelector('#review-box');
+  if (!box) return;
+  bindStarForm(box, {
+    textSelector: '#review-text',
+    submitSelector: '#review-submit',
+    onSubmit: async ({ stars, text }) => {
+      await addReview(listing.id, { stars, text });
+      toast('已送出評價');
+      if (onDone) onDone();
+    },
+  });
+}
+
+function closeRateSellerModal({ notify = false, reviewed = false } = {}) {
+  document.querySelector('.rate-seller-overlay')?.remove();
+  if (!document.querySelector('.offer-overlay')) document.body.classList.remove('offer-open');
+  if (rateSellerKeyHandler) {
+    document.removeEventListener('keydown', rateSellerKeyHandler);
+    rateSellerKeyHandler = null;
+  }
+  const done = rateSellerOnClose;
+  rateSellerOnClose = null;
+  if (notify && done) done({ reviewed });
+}
+
+function openRateSellerModal(listing, { onClose } = {}) {
+  closeOfferSheet();
+  closeRateSellerModal();
+  rateSellerOnClose = onClose || null;
+  const sellerName = listing?.sellerName || '賣家';
+  const overlay = document.createElement('div');
+  overlay.className = 'rate-seller-overlay';
+  overlay.innerHTML = `
+    <div class="offer-sheet rate-seller-sheet" role="dialog" aria-modal="true" aria-labelledby="rate-seller-title">
+      <div class="offer-sheet-head">
+        <h2 id="rate-seller-title">交易完成！想為賣家留下好評嗎？</h2>
+        <button type="button" class="offer-close" aria-label="關閉">×</button>
+      </div>
+      <div class="rate-seller-body">
+        <p class="meta">賣家 ${escapeHtml(sellerName)} · 星數必填，留言可留空</p>
+        <div class="section-label">星數</div>
+        ${starPickerHtml()}
+        ${reviewCommentField('rate-text')}
+        <button class="btn primary" type="button" id="rate-submit">送出評價</button>
+        <button class="btn ghost" type="button" id="rate-later">稍後再說</button>
+        <p class="trust-footnote">這是你與賣家的一句話，不是平台鑑定。</p>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.body.classList.add('offer-open');
+  const dismiss = () => closeRateSellerModal({ notify: true, reviewed: false });
+  rateSellerKeyHandler = (e) => {
+    if (e.key === 'Escape') dismiss();
+  };
+  document.addEventListener('keydown', rateSellerKeyHandler);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) dismiss();
+  });
+  overlay.querySelector('.offer-close')?.addEventListener('click', dismiss);
+  overlay.querySelector('#rate-later')?.addEventListener('click', dismiss);
+  bindStarForm(overlay, {
+    textSelector: '#rate-text',
+    submitSelector: '#rate-submit',
+    onSubmit: async ({ stars, text }) => {
+      await addReview(listing.id, { stars, text });
+      toast('已送出評價');
+      closeRateSellerModal({ notify: true, reviewed: true });
+    },
+  });
+  overlay.querySelector('.star')?.focus();
 }
 
 function shareCancelled(err) {
@@ -1761,6 +1846,20 @@ async function renderDetail(id, token = nextView()) {
     : buyerBar
       ? offerBarHtml(myOffer, 'buyer')
       : '';
+  const meId = isLoggedIn() ? state.me.id : '';
+  const acceptedMine = Boolean(myOffer && myOffer.fromId === meId && myOffer.status === 'accepted');
+  const canRateSeller = Boolean(sold && meId && l.buyerId === meId && l.canReview && l.reviewRole === 'buyer');
+  const showReceipt = Boolean(meId && !isSeller && !l.myReview && ((!sold && acceptedMine) || canRateSeller));
+  const receiptSecondary = thread?.id
+    ? `<button class="btn ghost" type="button" id="go-thread">查看對話</button>`
+    : !sold
+      ? `<button class="btn ghost" type="button" id="want">${wanted ? '已收藏' : '收藏'}</button>`
+      : '';
+  const receiptBar = showReceipt
+    ? `
+      <button class="btn primary" type="button" id="confirm-receipt">${sold ? '為賣家評分' : '確認收貨'}</button>
+      ${receiptSecondary}`
+    : '';
 
   const actionButtons = responseBar
     ? responseBar
@@ -1770,15 +1869,17 @@ async function renderDetail(id, token = nextView()) {
         ${sold ? '取消已售出' : '標示為已售出'}
       </button>
       <button class="btn ghost" type="button" data-go="mine">我的刊登</button>`
-      : sold
-        ? `
+      : receiptBar
+        ? receiptBar
+        : sold
+          ? `
       <button class="btn primary" type="button" disabled aria-disabled="true">已售出</button>
       <button class="btn ghost" type="button" disabled aria-disabled="true">收藏</button>`
-        : myOffer?.status === 'accepted'
-          ? `
+          : myOffer?.status === 'accepted'
+            ? `
       <button class="btn primary" type="button" id="go-thread">查看對話</button>
       <button class="btn ghost" type="button" id="want">${wanted ? '已收藏' : '收藏'}</button>`
-          : `
+            : `
       <button class="btn primary" type="button" id="go-bargain">${
         !myOffer ? '議價' : myOffer.status === 'pending' ? '更新出價' : '再出價'
       }</button>
@@ -1900,6 +2001,30 @@ async function renderDetail(id, token = nextView()) {
     }
   });
   bindReviewForm(l, () => renderDetail(id));
+  app.querySelector('#confirm-receipt')?.addEventListener('click', async () => {
+    if (!requireAuth(`detail/${l.id}`)) return;
+    const button = app.querySelector('#confirm-receipt');
+    if (button) button.disabled = true;
+    const wasSold = isSold(l);
+    try {
+      if (!wasSold) await confirmReceipt(l.id);
+      const fresh = getListing(l.id) || l;
+      if (!fresh.canReview || fresh.reviewRole !== 'buyer') {
+        toast(wasSold ? '這筆暫時不能評價' : '已確認收貨');
+        renderDetail(id);
+        return;
+      }
+      openRateSellerModal(fresh, {
+        onClose: ({ reviewed } = {}) => {
+          if (!wasSold && !reviewed) toast('已確認收貨，評價可以稍後再留');
+          renderDetail(id);
+        },
+      });
+    } catch (err) {
+      if (button) button.disabled = false;
+      errToast(err, '確認收貨失敗');
+    }
+  });
   app.querySelector('#toggle-sold')?.addEventListener('click', async () => {
     try {
       await setSold(l.id, !isSold(l));
@@ -3415,6 +3540,7 @@ function renderProfile() {
 
 async function route() {
   closeOfferSheet();
+  closeRateSellerModal();
   const token = nextView();
   const { parts } = parseHash();
   const [a, b] = parts;

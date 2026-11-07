@@ -200,6 +200,44 @@ export function trustSummary(userId, db, { recentLimit = 1 } = {}) {
   };
 }
 
+/** Accepted buyer confirms they have the item. Marks the listing sold to them.
+ * Idempotent when it is already sold to this buyer. Peer handover only. */
+export function applyConfirmReceipt(listing, db, userId) {
+  if (!listing) {
+    return { ok: false, status: 404, error: 'NOT_FOUND', message: '找不到商品' };
+  }
+  if (!userId || userId === listing.sellerId) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'FORBIDDEN',
+      message: userId === listing.sellerId ? '賣家請用標示已售出' : '只有已接受出價的買家可以確認收貨',
+    };
+  }
+  const accepted = (db?.offers || []).some(
+    (offer) => offer.listingId === listing.id && offer.fromId === userId && offer.status === 'accepted'
+  );
+  if (!accepted) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'FORBIDDEN',
+      message: '只有已接受出價的買家可以確認收貨',
+    };
+  }
+  if (listing.sold) {
+    const buyerId = listing.buyerId || '';
+    if (buyerId && buyerId !== userId) {
+      return { ok: false, status: 400, error: 'LISTING_SOLD', message: '此商品已售給其他買家' };
+    }
+    if (!buyerId) listing.buyerId = userId;
+    return { ok: true, already: true };
+  }
+  listing.sold = true;
+  listing.buyerId = userId;
+  return { ok: true, already: false };
+}
+
 export function acceptedBuyerId(listing, db) {
   const accepted = (db.offers || [])
     .filter(

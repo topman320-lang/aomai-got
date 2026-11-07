@@ -51,7 +51,9 @@ From repo root: `npm run server` (after `npm run server:install` once).
 | GET | `/api/push/status` | yes | `{ remotePush: false, ... }` |
 | GET | `/api/price-hint?category&condition` | no | Peer range or a rough guide. Not an appraisal |
 | GET | `/api/users/:id` | optional | Public profile, listings, short reviews. No email |
-| POST | `/api/listings/:id/reviews` | yes | `{ stars: 1-5, text? }` after a completed handover |
+| PATCH | `/api/listings/:id/sold` | yes | Seller only. Marks sold and links the accepted buyer |
+| POST | `/api/listings/:id/confirm-receipt` | yes | Accepted buyer marks sold to themselves. Idempotent if already that buyer |
+| POST | `/api/listings/:id/reviews` | yes | `{ stars: 1-5, text? }` after a completed handover. Stars required, text optional up to 80 |
 | GET | `/api/stats` | yes | Also returns `active`, `sold`, `saved`, `bought`, `trust` |
 
 Opening a thread (`GET /api/threads/:id`) still clears that side’s unread flag. Marking a listing sold links the buyer from the accepted offer when there is one. Trust copy must stay peer-level: no platform authentication, appraisal, or escrow.

@@ -28,6 +28,7 @@ import {
 import { listingDto, normalizeHandover, seedIfEmpty } from './seed.js';
 import {
   acceptedBuyerId,
+  applyConfirmReceipt,
   backfillDeals,
   badgeCountsFor,
   isActiveReview,
@@ -639,12 +640,38 @@ app.post('/api/listings', auth, (req, res) => {
 app.patch('/api/listings/:id/sold', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
-  if (!listing) return res.status(404).json({ error: 'NOT_FOUND' });
-  if (listing.sellerId !== req.user.id) return res.status(403).json({ error: 'FORBIDDEN' });
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listing.sellerId !== req.user.id) {
+    return res.status(403).json({ error: 'FORBIDDEN', message: '只有賣家可以標示已售出' });
+  }
   const sold = req.body?.sold;
   listing.sold = typeof sold === 'boolean' ? sold : !listing.sold;
   if (listing.sold) listing.buyerId = acceptedBuyerId(listing, db);
   else delete listing.buyerId;
+  touch(db, req.user.id);
+  persist();
+  res.json({ listing: listingDto(listing, db, publicBaseFor(req), req.user.id) });
+});
+
+app.post('/api/listings/:id/confirm-receipt', auth, (req, res) => {
+  const db = loadDb();
+  const listing = db.listings.find((l) => l.id === req.params.id);
+  const result = applyConfirmReceipt(listing, db, req.user.id);
+  if (!result.ok) {
+    return res.status(result.status).json({ error: result.error, message: result.message });
+  }
+  if (!result.already) {
+    const thread = ensureThread(db, listing, req.user.id);
+    pushMessage(db, thread, req.user.id, '已確認收貨');
+    notifyUser(db, {
+      userId: listing.sellerId,
+      kind: 'offer',
+      title: '買家已確認收貨',
+      body: `${req.user.name} 已確認收貨`,
+      href: `detail/${listing.id}`,
+      refId: listing.id,
+    });
+  }
   touch(db, req.user.id);
   persist();
   res.json({ listing: listingDto(listing, db, publicBaseFor(req), req.user.id) });

@@ -115,6 +115,8 @@ export const ListingsApi = {
       body: { sold },
       auth: true,
     }),
+  confirmReceipt: (id) =>
+    api(`/api/listings/${encodeURIComponent(id)}/confirm-receipt`, { method: 'POST', auth: true }),
   want: (id) =>
     api(`/api/listings/${encodeURIComponent(id)}/want`, { method: 'POST', auth: true }),
   unwant: (id) =>
