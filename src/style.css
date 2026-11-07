@@ -2170,7 +2170,8 @@ body.offer-open {
   overflow: hidden;
 }
 
-.offer-overlay {
+.offer-overlay,
+.rate-seller-overlay {
   position: fixed;
   inset: 0;
   z-index: 70;
@@ -2207,6 +2208,58 @@ body.offer-open {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.08em;
+}
+
+.rate-seller-overlay .offer-sheet-head h2 {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+}
+
+.rate-seller-body {
+  padding: 8px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rate-seller-body .section-label {
+  margin-top: 4px;
+}
+
+.rate-seller-body .star {
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+}
+
+.rate-seller-body .btn,
+.review-box .btn {
+  flex: none;
+  width: 100%;
+}
+
+.review-comment {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.rate-seller-body textarea,
+.review-box textarea {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--ink);
+  background: transparent;
+  padding: 10px 0;
+  min-height: 72px;
+  resize: vertical;
+  outline: none;
+  margin: 0 0 4px;
 }
 
 .offer-close {

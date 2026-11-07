@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  applyConfirmReceipt,
   backfillDeals,
   badgeCountsFor,
   lastActiveHint,
@@ -111,6 +112,51 @@ test('review access is only for the two people on a completed deal', () => {
   db.reviews.push({ id: 'r', listingId: 'l1', fromId: 'buyer', toId: 'seller', stars: 5, text: '', createdAt: 1 });
   assert.equal(reviewAccess(listing, db, 'buyer').canReview, false);
   assert.equal(reviewAccess({ ...listing, sold: false, buyerId: '' }, db, 'seller').canReview, false);
+});
+
+test('only the accepted buyer can confirm receipt', () => {
+  const db = emptyDb();
+  const listing = { id: 'l1', sellerId: 'seller', sold: false };
+  db.offers.push(
+    { listingId: 'l1', fromId: 'buyer', status: 'accepted' },
+    { listingId: 'l1', fromId: 'waiting', status: 'pending' }
+  );
+
+  const missing = applyConfirmReceipt(null, db, 'buyer');
+  assert.equal(missing.status, 404);
+  assert.match(missing.message, /找不到商品/);
+
+  const seller = applyConfirmReceipt(listing, db, 'seller');
+  assert.equal(seller.ok, false);
+  assert.match(seller.message, /標示已售出/);
+  assert.equal(listing.sold, false);
+
+  const waiting = applyConfirmReceipt(listing, db, 'waiting');
+  assert.equal(waiting.ok, false);
+  assert.match(waiting.message, /已接受出價的買家/);
+
+  const stranger = applyConfirmReceipt(listing, db, 'stranger');
+  assert.equal(stranger.ok, false);
+  assert.equal(listing.sold, false);
+
+  const done = applyConfirmReceipt(listing, db, 'buyer');
+  assert.equal(done.ok, true);
+  assert.equal(done.already, false);
+  assert.equal(listing.sold, true);
+  assert.equal(listing.buyerId, 'buyer');
+
+  const again = applyConfirmReceipt(listing, db, 'buyer');
+  assert.equal(again.ok, true);
+  assert.equal(again.already, true);
+  assert.equal(listing.buyerId, 'buyer');
+
+  const taken = { id: 'l2', sellerId: 'seller', sold: true, buyerId: 'buyer' };
+  db.offers.push({ listingId: 'l2', fromId: 'other', status: 'accepted' });
+  const other = applyConfirmReceipt(taken, db, 'other');
+  assert.equal(other.ok, false);
+  assert.equal(other.status, 400);
+  assert.match(other.message, /其他買家/);
+  assert.equal(taken.buyerId, 'buyer');
 });
 
 test('backfill links a sold listing to the accepted buyer', () => {
