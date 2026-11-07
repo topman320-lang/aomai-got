@@ -82,8 +82,13 @@ function parseHash() {
   return { parts, params };
 }
 
+let navGeneration = 0;
+
 function go(path) {
-  location.hash = `#/${path.replace(/^\//, '')}`;
+  const next = `#/${String(path || '').replace(/^\//, '')}`;
+  if (location.hash === next) return;
+  navGeneration += 1;
+  location.hash = next;
 }
 
 function money(n) {
@@ -196,7 +201,22 @@ function listingCard(l, { go: dest = `detail/${l.id}` } = {}) {
         </button>`;
 }
 
+let toastEpoch = 0;
+
+function dismissToast() {
+  toastEpoch += 1;
+  clearTimeout(toast._t);
+  toast._t = 0;
+  toast._nav = -1;
+  const el = document.querySelector('.toast');
+  if (!el) return;
+  el.classList.remove('show');
+  el.textContent = '';
+}
+
 function toast(msg, ms = 2200) {
+  const epoch = toastEpoch;
+  const nav = navGeneration;
   let el = document.querySelector('.toast');
   if (!el) {
     el = document.createElement('div');
@@ -206,7 +226,18 @@ function toast(msg, ms = 2200) {
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove('show'), ms);
+  toast._nav = nav;
+  toast._t = setTimeout(() => {
+    if (epoch !== toastEpoch) return;
+    el.classList.remove('show');
+    el.textContent = '';
+    if (toast._nav === nav) toast._nav = -1;
+  }, ms);
+}
+
+/** Drop a toast from an earlier screen. One shown for this navigation stays. */
+function dismissStaleToast() {
+  if (toast._nav !== navGeneration) dismissToast();
 }
 
 function errToast(err, fallback = '操作失敗') {
@@ -219,6 +250,17 @@ function requireAuth(nextPath) {
   go('login');
   toast('請先登入');
   return false;
+}
+
+/** Where to go after login. Edit-profile is not a landing screen. */
+function consumeAfterLogin(fallback = 'home') {
+  const stored = sessionStorage.getItem('aomai-after-login');
+  sessionStorage.removeItem('aomai-after-login');
+  const next = String(stored || fallback || 'home').replace(/^\//, '');
+  if (!next || next === 'profile' || next === 'login' || next === 'register' || next === 'forgot' || next === 'reset') {
+    return 'me';
+  }
+  return next;
 }
 
 function isLikelyImageFile(file) {
@@ -548,11 +590,10 @@ function renderLogin() {
     e.preventDefault();
     const fd = new FormData(e.target);
     try {
+      dismissToast();
       await login(String(fd.get('email')).trim(), String(fd.get('password')));
+      go(consumeAfterLogin());
       toast('登入成功');
-      const next = sessionStorage.getItem('aomai-after-login') || 'home';
-      sessionStorage.removeItem('aomai-after-login');
-      go(next);
     } catch (err) {
       errToast(err, '登入失敗');
     }
@@ -589,15 +630,14 @@ function renderRegister() {
     e.preventDefault();
     const fd = new FormData(e.target);
     try {
+      dismissToast();
       await register(
         String(fd.get('name')).trim(),
         String(fd.get('email')).trim(),
         String(fd.get('password'))
       );
+      go(consumeAfterLogin());
       toast('註冊成功');
-      const next = sessionStorage.getItem('aomai-after-login') || 'home';
-      sessionStorage.removeItem('aomai-after-login');
-      go(next);
     } catch (err) {
       errToast(err, '註冊失敗');
     }
@@ -696,8 +736,8 @@ function renderReset() {
     if (submit) submit.disabled = true;
     try {
       const data = await resetPassword(token, password);
-      toast(data?.message || '密碼已更新，請重新登入', 2800);
       go('login');
+      toast(data?.message || '密碼已更新，請重新登入', 2800);
     } catch (err) {
       errToast(err, '重設失敗');
       if (submit) submit.disabled = false;
@@ -1121,14 +1161,14 @@ function bindOfferForm(form, listing, { onSuccess } = {}) {
       });
       if (err?.code === 'OFFER_ACCEPTED') {
         closeOfferSheet();
-        toast(err.message || '賣家已接受出價');
         go(`detail/${listing.id}`);
+        toast(err.message || '賣家已接受出價');
         return;
       }
       if (err?.code === 'LISTING_SOLD') {
         closeOfferSheet();
-        toast('此商品已售出');
         go(`detail/${listing.id}`);
+        toast('此商品已售出');
         return;
       }
       errToast(err, '送出失敗，請再試');
@@ -1187,9 +1227,9 @@ function openOfferSheet(l) {
   bindOfferForm(overlay.querySelector('#offer-sheet-form'), l, {
     onSuccess: (thread, { updated } = {}) => {
       closeOfferSheet();
-      toast(updated ? '已更新出價，待賣家回覆' : '出價已送出，待賣家回覆');
       if (thread) go(`chat/${thread.id}`);
       else renderDetail(l.id);
+      toast(updated ? '已更新出價，待賣家回覆' : '出價已送出，待賣家回覆');
     },
   });
   overlay.querySelector('[name="amount"]')?.focus();
@@ -2066,13 +2106,13 @@ async function renderBargain(id, token = nextView()) {
     return;
   }
   if (isSold(l)) {
-    toast('此商品已售出');
     go(`detail/${l.id}`);
+    toast('此商品已售出');
     return;
   }
   if (isLoggedIn() && l.sellerId === getState().me.id) {
-    toast('這是你的刊登');
     go(`detail/${l.id}`);
+    toast('這是你的刊登');
     return;
   }
   const offers = getOffersForListing(id);
@@ -2121,9 +2161,9 @@ async function renderBargain(id, token = nextView()) {
   app.innerHTML = shell(content, { noTab: true, screenClass: 'docked' });
   bindOfferForm(app.querySelector('#offer-form'), l, {
     onSuccess: (thread, { updated } = {}) => {
-      toast(updated ? '已更新出價，待賣家回覆' : '出價已送出，待賣家回覆');
       if (thread) go(`chat/${thread.id}`);
       else renderBargain(id);
+      toast(updated ? '已更新出價，待賣家回覆' : '出價已送出，待賣家回覆');
     },
   });
 }
@@ -2406,8 +2446,8 @@ function renderPost(token = nextView()) {
         negotiable: draft.negotiable !== false,
         photos: photos.filter(Boolean),
       });
-      toast('已發佈');
       go(`detail/${listing.id}`);
+      toast('已發佈');
     } catch (err) {
       errToast(err, '發佈失敗：請檢查圖片大小或網路');
       if (btn) btn.disabled = false;
@@ -3856,8 +3896,8 @@ async function renderMe(token = nextView()) {
       </button>
       <p class="photo-hint notify-note">開啟後，新訊息同出價會在應用內提醒。關掉 App 之後的商店推播需要 APNs／FCM，目前未接入，所以這裡先用紅點同本機通知。</p>`
           : `
-      <button class="menu-row" type="button" data-go="login"><span>登入</span><span class="arrow">→</span></button>
-      <button class="menu-row" type="button" data-go="register"><span>註冊</span><span class="arrow">→</span></button>`
+      <button class="menu-row" type="button" data-go="login" id="me-login"><span>登入</span><span class="arrow">→</span></button>
+      <button class="menu-row" type="button" data-go="register" id="me-register"><span>註冊</span><span class="arrow">→</span></button>`
       }
       <button class="menu-row theme-row" type="button" id="theme-toggle" aria-pressed="${getTheme() === 'dark'}">
         <span>介面顏色</span>
@@ -3875,6 +3915,12 @@ async function renderMe(token = nextView()) {
       }
     </div>`;
   app.innerHTML = shell(content, { tab: 'me' });
+  app.querySelector('#me-login')?.addEventListener('click', () => {
+    sessionStorage.setItem('aomai-after-login', 'me');
+  });
+  app.querySelector('#me-register')?.addEventListener('click', () => {
+    sessionStorage.setItem('aomai-after-login', 'me');
+  });
   app.querySelector('#notify-toggle')?.addEventListener('click', async () => {
     const stateEl = app.querySelector('#notify-state');
     if (stateEl) stateEl.textContent = '開啟中…';
@@ -3897,6 +3943,7 @@ async function renderMe(token = nextView()) {
     showAbout();
   });
   app.querySelector('#logout')?.addEventListener('click', async () => {
+    dismissToast();
     await logout();
     toast('已登出');
     renderMe();
@@ -3907,7 +3954,7 @@ const PROFILE_NAME_MAX = 20;
 const PROFILE_BIO_MAX = 80;
 
 function renderProfile() {
-  if (!requireAuth('profile')) return;
+  if (!requireAuth('me')) return;
   const me = getState().me;
   let picked = '';
   let removed = false;
@@ -4062,8 +4109,8 @@ function renderProfile() {
     if (btn) btn.disabled = true;
     try {
       await updateProfile(payload);
-      toast('已更新個人資料');
       go('me');
+      toast('已更新個人資料');
     } catch (err) {
       errToast(err, '更新失敗');
       if (btn) btn.disabled = false;
@@ -4078,6 +4125,7 @@ async function route() {
   stopVoicePlayback();
   closeOfferSheet();
   closeRateSellerModal();
+  dismissStaleToast();
   const token = nextView();
   const { parts } = parseHash();
   const [a, b] = parts;
@@ -4177,12 +4225,10 @@ app.innerHTML = shell(
 );
 
 bootstrap()
-  .then((r) => {
-    if (!r.online) {
-      toast('無法連接後端，請先執行 npm run server');
-    }
+  .then(async (r) => {
     watchNotices({
       onNotice: (notice) => {
+        if (!isLoggedIn()) return;
         const { parts } = parseHash();
         if (parts[0] === 'chat' && notice.href === `chat/${parts[1]}`) {
           const input = document.querySelector('#chat-input');
@@ -4201,11 +4247,11 @@ bootstrap()
       },
     });
     if (!location.hash) location.hash = '#/home';
-    return route();
+    await route();
+    if (!r.online) toast('無法連接後端，請先執行 npm run server');
   })
   .catch((err) => {
     console.error(err);
-    toast('啟動失敗');
     if (!location.hash) location.hash = '#/home';
-    route();
+    route().then(() => toast('啟動失敗'), () => toast('啟動失敗'));
   });

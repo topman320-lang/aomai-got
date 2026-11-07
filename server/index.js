@@ -788,12 +788,16 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   });
 });
 
-app.get('/api/listings/:id/offers', optionalAuth, (req, res) => {
+/** Seller sees every offer. Any other signed-in user sees only their own. */
+app.get('/api/listings/:id/offers', auth, (req, res) => {
   const db = loadDb();
+  const listing = db.listings.find((l) => l.id === req.params.id);
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  const isSeller = listing.sellerId === req.user.id;
   const offers = db.offers
-    .filter((o) => o.listingId === req.params.id)
+    .filter((o) => o.listingId === listing.id && (isSeller || o.fromId === req.user.id))
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
-    .map((o) => offerDto(o, db, req.user?.id || ''));
+    .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
 });
 

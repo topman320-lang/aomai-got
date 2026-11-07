@@ -99,6 +99,29 @@ export function isLoggedIn() {
   return Boolean(getToken() && state.me?.id);
 }
 
+/** Bumps on login, register, and logout so in-flight notices cannot surface after a switch. */
+let sessionGen = 1;
+
+export function sessionGeneration() {
+  return sessionGen;
+}
+
+function clearPrivateState() {
+  state.threads = [];
+  state.wants = [];
+  state.offers = [];
+  state.incomingOffers = [];
+  state.notices = [];
+  state.badges = { messages: 0, offers: 0, notices: 0 };
+}
+
+/** Drop the previous user's private cache and invalidate in-flight notice polls. */
+function rotateSession() {
+  sessionGen += 1;
+  clearPrivateState();
+  return sessionGen;
+}
+
 export function getBadges() {
   return state.badges || { messages: 0, offers: 0, notices: 0 };
 }
@@ -288,11 +311,18 @@ export async function fetchHomeListings({ q = '', category = '全部', min = nul
 export async function refreshListing(id) {
   const { listing } = await ListingsApi.get(id);
   upsertListing(listing);
+  if (!isLoggedIn()) {
+    state.offers = state.offers.filter((o) => o.listingId !== id);
+    return listing;
+  }
+  const session = sessionGeneration();
   try {
     const { offers } = await ListingsApi.offers(id);
-    state.offers = [...offers, ...state.offers.filter((o) => o.listingId !== id)];
+    if (session !== sessionGeneration()) return listing;
+    const visible = Array.isArray(offers) ? offers : [];
+    state.offers = [...visible, ...state.offers.filter((o) => o.listingId !== id)];
   } catch {
-    /* offers optional when offline auth */
+    /* offers stay as last fetched for this session */
   }
   return listing;
 }
@@ -302,7 +332,9 @@ export async function refreshThreads() {
     state.threads = [];
     return [];
   }
+  const session = sessionGeneration();
   const { threads } = await ThreadsApi.list();
+  if (session !== sessionGeneration() || !isLoggedIn()) return state.threads;
   state.threads = threads;
   syncBadges();
   return threads;
@@ -313,7 +345,9 @@ export async function refreshWants() {
     state.wants = [];
     return [];
   }
+  const session = sessionGeneration();
   const data = await WantsApi.list();
+  if (session !== sessionGeneration() || !isLoggedIn()) return state.wants;
   state.wants = data.wants || [];
   for (const listing of data.listings || []) upsertListing(listing);
   return state.wants;
@@ -321,10 +355,12 @@ export async function refreshWants() {
 
 export async function refreshMyOffers() {
   if (!isLoggedIn()) {
-    state.offers = state.offers.filter(() => false);
+    state.offers = [];
     return [];
   }
+  const session = sessionGeneration();
   const { offers } = await OffersApi.mine();
+  if (session !== sessionGeneration() || !isLoggedIn()) return [];
   const mineIds = new Set(offers.map((o) => o.id));
   state.offers = [...offers, ...state.offers.filter((o) => o.fromId !== state.me.id && !mineIds.has(o.id))];
   syncBadges();
@@ -336,7 +372,9 @@ export async function refreshIncomingOffers() {
     state.incomingOffers = [];
     return [];
   }
+  const session = sessionGeneration();
   const { offers } = await OffersApi.incoming();
+  if (session !== sessionGeneration() || !isLoggedIn()) return [];
   state.incomingOffers = offers;
   const ids = new Set(offers.map((o) => o.id));
   state.offers = [...offers, ...state.offers.filter((o) => !ids.has(o.id))];
@@ -349,21 +387,25 @@ export async function refreshBadges() {
     state.badges = { messages: 0, offers: 0, notices: 0 };
     return state.badges;
   }
+  const session = sessionGeneration();
   try {
     const data = await BadgesApi.get();
+    if (session !== sessionGeneration() || !isLoggedIn()) return state.badges;
     state.badges = {
       messages: Number(data?.messages) || 0,
       offers: Number(data?.offers) || 0,
       notices: Number(data?.notices) || 0,
     };
   } catch {
-    syncBadges();
+    if (session === sessionGeneration() && isLoggedIn()) syncBadges();
   }
   return state.badges;
 }
 
 export async function login(email, password) {
+  sessionGen += 1;
   const { token, user } = await AuthApi.login({ email, password });
+  rotateSession();
   setToken(token);
   state.me = asMe(user);
   await Promise.all([refreshListings(), refreshThreads(), refreshWants()]);
@@ -374,7 +416,9 @@ export async function login(email, password) {
 }
 
 export async function register(name, email, password) {
+  sessionGen += 1;
   const { token, user } = await AuthApi.register({ name, email, password });
+  rotateSession();
   setToken(token);
   state.me = asMe(user);
   await Promise.all([refreshListings(), refreshThreads(), refreshWants()]);
@@ -419,14 +463,9 @@ export async function resetPassword(token, password) {
 }
 
 export async function logout() {
+  rotateSession();
   clearToken();
   state.me = { ...GUEST_ME };
-  state.threads = [];
-  state.wants = [];
-  state.offers = [];
-  state.incomingOffers = [];
-  state.notices = [];
-  state.badges = { messages: 0, offers: 0, notices: 0 };
   await refreshListings().catch(() => {});
 }
 
@@ -484,7 +523,9 @@ export async function refreshNotices() {
     state.badges = { ...getBadges(), notices: 0 };
     return [];
   }
+  const session = sessionGeneration();
   const data = await NoticesApi.list();
+  if (session !== sessionGeneration() || !isLoggedIn()) return [];
   state.notices = data.notices || [];
   state.badges = { ...getBadges(), notices: Number(data.unread) || state.notices.filter((n) => !n.read).length };
   return state.notices;
