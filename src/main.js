@@ -718,7 +718,11 @@ function priceDraftNumber(raw) {
 
 function readHomeQuery() {
   const q = (sessionStorage.getItem('aomai-q') || '').trim();
-  const cat = sessionStorage.getItem('aomai-cat') || '全部';
+  let cat = sessionStorage.getItem('aomai-cat') || '全部';
+  if (!CATEGORIES.includes(cat)) {
+    cat = '全部';
+    sessionStorage.setItem('aomai-cat', cat);
+  }
   const minRaw = readPriceDraft('aomai-min');
   const maxRaw = readPriceDraft('aomai-max');
   const min = priceDraftNumber(minRaw);

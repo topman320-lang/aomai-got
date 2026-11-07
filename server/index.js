@@ -11,6 +11,7 @@ import {
   loadDb,
   persist,
   isPhotoAvatar,
+  migrateListingCategories,
   normalizeStoredUploads,
   pickEmoji,
   pickTone,
@@ -48,6 +49,7 @@ seedIfEmpty();
   const seeded = loadDb();
   let changed = false;
   if (backfillDeals(seeded)) changed = true;
+  if (migrateListingCategories(seeded)) changed = true;
   if (normalizeStoredUploads(seeded)) changed = true;
   if (changed) persist();
 }

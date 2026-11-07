@@ -10,6 +10,7 @@ process.env.UPLOADS_DIR = path.join(tmp, 'uploads');
 
 const {
   absolutePhotos,
+  migrateListingCategories,
   normalizeStoredUploads,
   presentAvatar,
   publicBaseFromRequest,
@@ -105,6 +106,16 @@ test('savePhotos keeps a single photo and caps a batch at 10', () => {
   assert.equal(savePhotos(Array.from({ length: MAX_LISTING_PHOTOS }, () => png)).length, 10);
   assert.equal(savePhotos(Array.from({ length: MAX_LISTING_PHOTOS + 2 }, () => png)).length, 10);
   assert.equal(savePhotos(['', ...Array.from({ length: 12 }, () => png)]).length, 10);
+});
+
+test('removed category 潮流 is stored as 服飾', () => {
+  const db = { listings: [{ category: '潮流' }, { category: '玩具' }, { category: '服飾' }] };
+  assert.equal(migrateListingCategories(db), true);
+  assert.deepEqual(
+    db.listings.map((l) => l.category),
+    ['服飾', '玩具', '服飾']
+  );
+  assert.equal(migrateListingCategories(db), false);
 });
 
 test('savePhotos caps chat images at 4 when asked', () => {

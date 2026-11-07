@@ -17,7 +17,6 @@ import {
 
 export const CATEGORIES = [
   '全部',
-  '潮流',
   '服飾',
   '美妝',
   '數碼',
@@ -25,6 +24,7 @@ export const CATEGORIES = [
   '家居',
   '運動',
   '母嬰',
+  '玩具',
   '遊戲',
   '卡牌',
   '寵物用品',

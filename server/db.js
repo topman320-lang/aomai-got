@@ -227,6 +227,21 @@ export function saveAvatarDataUrl(dataUrl) {
   return `/uploads/${name}`;
 }
 
+/** Dropped picker labels. Stored listings move to the closest category that remains. */
+const CATEGORY_MOVES = { 潮流: '服飾' };
+
+export function migrateListingCategories(db) {
+  if (!db) return false;
+  let changed = false;
+  for (const listing of db.listings || []) {
+    const next = listing && CATEGORY_MOVES[listing.category];
+    if (!next) continue;
+    listing.category = next;
+    changed = true;
+  }
+  return changed;
+}
+
 export function pickTone(title = '') {
   const tones = ['#eceae6', '#d8d4cc', '#e4e4e4', '#ddd6c8', '#cfcfcf', '#f0eeea'];
   let n = 0;
@@ -236,7 +251,6 @@ export function pickTone(title = '') {
 
 export function pickEmoji(category) {
   const map = {
-    潮流: '✨',
     服飾: '👕',
     美妝: '💄',
     數碼: '📱',
@@ -244,6 +258,7 @@ export function pickEmoji(category) {
     家居: '🪑',
     運動: '🏀',
     母嬰: '🍼',
+    玩具: '🧸',
     遊戲: '🎮',
     卡牌: '🃏',
     寵物用品: '🐾',
