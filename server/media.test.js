@@ -192,6 +192,20 @@ test('saveMessageAudio stores wav webm mp4 and ogg, and rejects non-audio', () =
     saveMessageAudio({ data: audioDataUrl('audio/webm', Buffer.from(png.split(',')[1], 'base64')), duration: 4 }).error,
     'INVALID_AUDIO'
   );
+  const unlabeled = Buffer.alloc(24);
+  unlabeled[0] = 0x1a;
+  unlabeled[1] = 0x45;
+  unlabeled[2] = 0xdf;
+  unlabeled[3] = 0xa3;
+  assert.match(
+    saveMessageAudio({ data: audioDataUrl('application/octet-stream', unlabeled), duration: 4 }).audio.url,
+    /\.webm$/
+  );
+  assert.match(
+    saveMessageAudio({ data: audioDataUrl('video/webm', webm), duration: 4 }).audio.url,
+    /\.webm$/
+  );
+
   assert.equal(saveMessageAudio({ data: audioDataUrl('audio/wav', tinyWav()), duration: 0.1 }).error, 'AUDIO_TOO_SHORT');
   assert.equal(saveMessageAudio({ data: audioDataUrl('audio/wav', tinyWav()), duration: 90 }).error, 'AUDIO_TOO_LONG');
   assert.equal(
