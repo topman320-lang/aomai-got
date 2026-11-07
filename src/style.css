@@ -157,6 +157,61 @@ img {
   line-height: 1;
 }
 
+.topbar-share {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ink);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+.share-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: var(--overlay);
+  display: grid;
+  align-items: end;
+  justify-content: center;
+}
+
+.share-fallback[hidden] {
+  display: none;
+}
+
+.share-fallback-card {
+  width: min(430px, 100%);
+  background: var(--bg);
+  color: var(--ink);
+  border-top: 1px solid var(--ink);
+  padding: 16px 16px calc(16px + var(--safe-b));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-fallback-lead {
+  white-space: pre-line;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.share-fallback-url {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.share-fallback-card .btn {
+  flex: none;
+  width: 100%;
+}
+
 .brand {
   display: flex;
   align-items: center;

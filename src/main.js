@@ -1,4 +1,5 @@
 import { API_BASE, privacyUrl } from './api.js';
+import { listingSharePayload } from './share.js';
 import { enableNotifications, notifyStatusText, watchNotices } from './notify.js';
 import {
   CATEGORIES,
@@ -1639,6 +1640,93 @@ function bindReviewForm(listing, onDone) {
   });
 }
 
+function shareCancelled(err) {
+  const name = String(err?.name || '');
+  const message = String(err?.message || err || '');
+  return name === 'AbortError' || /cancel/i.test(message);
+}
+
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement('textarea');
+      area.value = value;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function openShareFallback(root, payload) {
+  const sheet = root.querySelector('#share-fallback');
+  if (!sheet) return;
+  const lead = sheet.querySelector('[data-share-lead]');
+  const urlEl = sheet.querySelector('[data-share-url]');
+  if (lead) lead.textContent = payload.preview;
+  if (urlEl) urlEl.textContent = payload.url;
+  sheet.hidden = false;
+}
+
+function bindListingShare(root, listing) {
+  const payload = listingSharePayload(listing, window.location);
+  root.querySelector('#share-listing')?.addEventListener('click', async () => {
+    try {
+      const { Share } = await import('@capacitor/share');
+      const can = await Share.canShare();
+      if (can?.value) {
+        await Share.share({
+          title: payload.title,
+          text: payload.text,
+          url: payload.url,
+          dialogTitle: payload.dialogTitle,
+        });
+        return;
+      }
+    } catch (err) {
+      if (shareCancelled(err)) return;
+    }
+    openShareFallback(root, payload);
+  });
+
+  const sheet = root.querySelector('#share-fallback');
+  sheet?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-share]');
+    if (!btn) {
+      if (e.target === sheet) sheet.hidden = true;
+      return;
+    }
+    const kind = btn.dataset.share;
+    if (kind === 'close') {
+      sheet.hidden = true;
+      return;
+    }
+    if (kind === 'copy') {
+      const ok = await copyText(payload.url);
+      toast(ok ? '已複製連結' : '無法複製，請長按連結');
+      return;
+    }
+    const href =
+      kind === 'whatsapp'
+        ? `https://wa.me/?text=${encodeURIComponent(payload.text)}`
+        : kind === 'facebook'
+          ? `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(payload.url)}`
+          : '';
+    if (!href) return;
+    window.open(href, '_blank', 'noopener,noreferrer');
+  });
+}
+
 async function renderDetail(id, token = nextView()) {
   const state = getState();
   let l = getListing(id);
@@ -1735,6 +1823,7 @@ async function renderDetail(id, token = nextView()) {
     <header class="topbar">
       <button class="back" type="button" data-go="home" aria-label="返回">←</button>
       <h1>商品詳情</h1>
+      <button class="topbar-share" type="button" id="share-listing">分享</button>
     </header>
     ${galleryHtml(l, photos)}
     <section class="price-block">
@@ -1769,10 +1858,21 @@ async function renderDetail(id, token = nextView()) {
     </div>
     <div class="actionbar">
       ${actionButtons}
+    </div>
+    <div class="share-fallback" id="share-fallback" hidden>
+      <div class="share-fallback-card" role="dialog" aria-label="分享">
+        <p class="share-fallback-lead" data-share-lead></p>
+        <p class="share-fallback-url" data-share-url></p>
+        <button class="btn ghost" type="button" data-share="copy">複製連結</button>
+        <button class="btn ghost" type="button" data-share="whatsapp">WhatsApp</button>
+        <button class="btn ghost" type="button" data-share="facebook">Facebook</button>
+        <button class="btn primary" type="button" data-share="close">取消</button>
+      </div>
     </div>`;
 
   app.innerHTML = shell(content, { noTab: true, screenClass: 'docked' });
   bindGallery(photos);
+  bindListingShare(app, l);
   bindOfferStatus(app, { onDone: () => renderDetail(id) });
   app.querySelector('#go-bargain')?.addEventListener('click', () => openOfferSheet(l));
   app.querySelector('#go-thread')?.addEventListener('click', () => {
