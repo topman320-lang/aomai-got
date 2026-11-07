@@ -7,7 +7,7 @@ Bundle ID／Application ID：**`com.aomai.got`**
 支援：<https://aomai-got.onrender.com/support>（`mogot.app@gmail.com`）  
 隱私政策：<https://aomai-got.onrender.com/privacy>  
 可直接貼上的 Connect 文案：`docs/APP_STORE.md`  
-示範帳號：`demo@aomai.got` / `demo1234`
+沒有預設示範帳號。審核時請在登入頁自行註冊。
 
 本檔是審核文案與準備清單。沒有、也不應放上虛構的 App Store Connect 截圖。截圖請在模擬器或實機自己擷取。
 
@@ -41,7 +41,7 @@ Bundle ID／Application ID：**`com.aomai.got`**
 
 ### 審核備註
 
-- 示範登入：`demo@aomai.got` / `demo1234`
+- 審核登入：沒有預設示範帳號。請在登入頁註冊電郵與密碼（至少 6 位）後登入。
 - 沒有 App 內購買，沒有託管或擔保付款。
 - 接受出價後，「見面時間／地點」只是雙方自己填的約會，不是平台安排的物流。
 - 推播：應用內會顯示紅點。若系統通知權限未開，功能仍可用。遠端推播憑證尚未提交，請不要把「關掉 App 也會收到推播」當成已完成功能。

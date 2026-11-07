@@ -10,6 +10,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aomai-voice-api-'));
 const port = 20000 + Math.floor(Math.random() * 20000);
 const base = `http://127.0.0.1:${port}`;
+const PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 function tinyWav() {
   const data = Buffer.alloc(32);
@@ -77,20 +79,44 @@ test('voice messages follow the chat image trust model', async (t) => {
     throw new Error(`${err.message}\n${logs}`);
   }
 
-  const loginRes = await fetch(`${base}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'demo@aomai.got', password: 'demo1234' }),
-  });
-  assert.equal(loginRes.status, 200);
-  const login = await loginRes.json();
-  const auth = { Authorization: `Bearer ${login.token}`, 'Content-Type': 'application/json' };
+  async function register(name, email) {
+    const res = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password: 'secret1' }),
+    });
+    assert.equal(res.status, 201);
+    return res.json();
+  }
 
-  const threadsRes = await fetch(`${base}/api/threads`, { headers: auth });
-  assert.equal(threadsRes.status, 200);
-  const { threads } = await threadsRes.json();
-  assert.ok(threads.length > 0);
-  const threadId = threads[0].id;
+  const seller = await register('賣家', 'seller-voice@example.com');
+  const buyer = await register('買家', 'buyer-voice@example.com');
+  const listingRes = await fetch(`${base}/api/listings`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${seller.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: '座檯小風扇',
+      price: 50,
+      description: '夏天用過，風力正常。',
+      category: '其他',
+      location: '氹仔',
+      condition: '良好',
+      handover: '面交',
+      photos: [PNG],
+    }),
+  });
+  assert.equal(listingRes.status, 201);
+  const listing = (await listingRes.json()).listing;
+  const offerRes = await fetch(`${base}/api/listings/${listing.id}/offers`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${buyer.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount: 50, meetup: '賣家地點', message: '今晚可以。' }),
+  });
+  assert.equal(offerRes.status, 201);
+  const offer = await offerRes.json();
+  const threadId = offer.thread.id;
+  assert.ok(threadId);
+  const auth = { Authorization: `Bearer ${buyer.token}`, 'Content-Type': 'application/json' };
 
   const anon = await fetch(`${base}/api/threads/${threadId}/messages`, {
     method: 'POST',

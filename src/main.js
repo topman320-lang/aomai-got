@@ -570,13 +570,12 @@ function renderLogin() {
     <form class="form" id="login-form">
       <div class="field">
         <label for="email">電郵</label>
-        <input id="email" name="email" type="email" autocomplete="username" required placeholder="demo@aomai.got" />
+        <input id="email" name="email" type="email" autocomplete="username" required placeholder="you@example.com" />
       </div>
       <div class="field">
         <label for="password">密碼</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="至少 6 位" />
       </div>
-      <p class="meta" style="padding:0 4px 8px">示範帳號：demo@aomai.got / demo1234</p>
       <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
         <button class="btn ghost" type="button" data-go="register">註冊</button>
         <button class="btn primary" type="submit">登入</button>
@@ -654,7 +653,7 @@ function renderForgot() {
     <form class="form" id="forgot-form">
       <div class="field">
         <label for="email">電郵</label>
-        <input id="email" name="email" type="email" autocomplete="email" required placeholder="demo@aomai.got" />
+        <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" />
       </div>
       <p class="meta" id="forgot-note" style="padding:0 4px">輸入註冊電郵。此示範不會寄出電郵，送出後只確認已收到申請。</p>
       <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
