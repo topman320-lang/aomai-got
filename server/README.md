@@ -1,4 +1,6 @@
-# 澳賣 GOT API
+# 澳賣GOT API
+
+English short name: **MoGOT**.
 
 Minimal Express backend (JSON file store — `better-sqlite3` failed to build here without `make`).
 

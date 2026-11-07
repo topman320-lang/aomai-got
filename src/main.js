@@ -499,6 +499,10 @@ function renderLogin() {
       <button class="back" type="button" data-go="home" aria-label="返回">←</button>
       <h1>登入</h1>
     </header>
+    <div class="brand brand-home" style="padding:4px 16px 8px">
+      <p style="margin:0;font-weight:700;letter-spacing:0.02em">澳賣GOT</p>
+      <span class="muted tiny brand-tagline">MoGOT</span>
+    </div>
     ${offlineBanner()}
     <form class="form" id="login-form">
       <div class="field">
@@ -742,7 +746,8 @@ async function renderHome(token = nextView(), options = {}) {
     <div class="home-head">
       <header class="topbar topbar-brand">
         <div class="brand brand-home">
-          <img class="brand-logo brand-logo-home" data-brand-logo="auto" src="${brandLogoSrc()}" alt="澳賣 GOT" />
+          <img class="brand-logo brand-logo-home" data-brand-logo="auto" src="${brandLogoSrc()}" alt="澳賣GOT" />
+          <span class="muted tiny brand-tagline">MoGOT</span>
           <span class="muted tiny brand-tagline">一物一故事 · 閑置亦有價</span>
         </div>
       </header>
@@ -2807,12 +2812,13 @@ function showAbout() {
   const overlay = document.createElement('div');
   overlay.className = 'about-overlay';
   overlay.innerHTML = `
-    <div class="about-sheet" role="dialog" aria-label="關於澳賣 GOT">
+    <div class="about-sheet" role="dialog" aria-label="關於澳賣GOT">
       <div class="brand-strip brand-strip-dark">
-        <img class="brand-logo brand-logo-lg" data-brand-logo="dark" src="${brandLogoSrc('dark')}" alt="澳賣 GOT" />
+        <img class="brand-logo brand-logo-lg" data-brand-logo="dark" src="${brandLogoSrc('dark')}" alt="澳賣GOT" />
       </div>
       <div class="about-body">
         <p>澳門鄰里二手 · 議價為主</p>
+        <p class="meta">MoGOT</p>
         <p class="meta" style="margin:8px 0 16px">一物一故事 · 閑置亦有價</p>
         <button type="button" class="btn ghost" id="about-privacy" style="width:100%;margin-bottom:8px">隱私政策</button>
         <button type="button" class="btn primary" id="about-close" style="width:100%">關閉</button>
@@ -2858,7 +2864,10 @@ async function renderMe(token = nextView()) {
     <header class="topbar"><h1>我的</h1></header>
     ${offlineBanner()}
     <div class="brand-strip brand-strip-light">
-      <img class="brand-logo brand-logo-lg" data-brand-logo="auto" src="${brandLogoSrc()}" alt="澳賣 GOT" />
+      <div class="brand brand-home">
+        <img class="brand-logo brand-logo-lg" data-brand-logo="auto" src="${brandLogoSrc()}" alt="澳賣GOT" />
+        <span class="muted tiny brand-tagline">MoGOT</span>
+      </div>
     </div>
     <div class="profile">
       ${avatarHtml(state.me.avatar, 'lg')}
@@ -2905,7 +2914,7 @@ async function renderMe(token = nextView()) {
         </span>
       </button>
       <button class="menu-row" type="button" data-go="privacy"><span>隱私政策</span><span class="arrow">→</span></button>
-      <button class="menu-row" type="button" id="about"><span>關於澳賣 GOT</span><span class="arrow">→</span></button>
+      <button class="menu-row" type="button" id="about"><span>關於澳賣GOT</span><span class="arrow">→</span></button>
       ${
         logged
           ? `<button class="menu-row" type="button" id="logout"><span>登出</span><span class="arrow">→</span></button>`
@@ -3207,7 +3216,7 @@ function escapeAttr(s = '') {
 applyTheme(getTheme());
 
 app.innerHTML = shell(
-  `<header class="topbar"><h1>澳賣 GOT</h1></header>${skeletonGrid()}`,
+  `<header class="topbar"><h1>澳賣GOT</h1></header>${skeletonGrid()}`,
   { tab: 'home', screenClass: 'home-screen' }
 );
 

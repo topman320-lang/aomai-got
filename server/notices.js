@@ -14,7 +14,7 @@ export function addNotice(db, notice) {
     id: notice.id,
     userId,
     kind: String(notice.kind || 'message'),
-    title: String(notice.title || '澳賣 GOT').slice(0, 40),
+    title: String(notice.title || '澳賣GOT').slice(0, 40),
     body,
     href: String(notice.href || ''),
     refId: String(notice.refId || ''),

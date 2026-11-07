@@ -121,7 +121,7 @@ async function showSystemNotice(notice) {
         notifications: [
           {
             id: hashId(notice.id),
-            title: notice.title || '澳賣 GOT',
+            title: notice.title || '澳賣GOT',
             body: notice.body || '',
             schedule: { at: new Date(Date.now() + 400) },
           },
@@ -134,7 +134,7 @@ async function showSystemNotice(notice) {
   }
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     try {
-      new Notification(notice.title || '澳賣 GOT', { body: notice.body || '', tag: notice.id });
+      new Notification(notice.title || '澳賣GOT', { body: notice.body || '', tag: notice.id });
     } catch {
       /* in-app toast still runs */
     }
