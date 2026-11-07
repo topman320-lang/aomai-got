@@ -240,6 +240,11 @@ export function pickEmoji(category) {
     家居: '🪑',
     運動: '🏀',
     母嬰: '🍼',
+    遊戲: '🎮',
+    卡牌: '🃏',
+    寵物用品: '🐾',
+    '票券／會籍': '🎫',
+    書本: '📚',
     其他: '📦',
   };
   return map[category] || '📦';
