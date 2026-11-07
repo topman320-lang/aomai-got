@@ -14,6 +14,7 @@ const {
   presentAvatar,
   publicBaseFromRequest,
   MAX_LISTING_PHOTOS,
+  MAX_MESSAGE_PHOTOS,
   savePhotos,
   uploadPath,
   usablePublicBase,
@@ -74,11 +75,13 @@ test('stored localhost upload URLs are migrated to relative paths', () => {
   const db = {
     users: [{ avatar: AVATAR }, { avatar: '哥' }],
     listings: [{ id: 'l-2ec58cb09cc1', photos: [GODZILLA, '/uploads/ok.jpg'] }],
+    messages: [{ id: 'm-1', photos: [GODZILLA] }],
   };
   assert.equal(normalizeStoredUploads(db), true);
   assert.equal(db.users[0].avatar, '/uploads/img-72effe327be9.jpg');
   assert.equal(db.users[1].avatar, '哥');
   assert.deepEqual(db.listings[0].photos, ['/uploads/img-aee50efe2689.jpg', '/uploads/ok.jpg']);
+  assert.deepEqual(db.messages[0].photos, ['/uploads/img-aee50efe2689.jpg']);
   assert.equal(normalizeStoredUploads(db), false);
 });
 
@@ -102,4 +105,12 @@ test('savePhotos keeps a single photo and caps a batch at 10', () => {
   assert.equal(savePhotos(Array.from({ length: MAX_LISTING_PHOTOS }, () => png)).length, 10);
   assert.equal(savePhotos(Array.from({ length: MAX_LISTING_PHOTOS + 2 }, () => png)).length, 10);
   assert.equal(savePhotos(['', ...Array.from({ length: 12 }, () => png)]).length, 10);
+});
+
+test('savePhotos caps chat images at 4 when asked', () => {
+  assert.equal(MAX_MESSAGE_PHOTOS, 4);
+  const png =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  assert.equal(savePhotos([png], MAX_MESSAGE_PHOTOS).length, 1);
+  assert.equal(savePhotos(Array.from({ length: 6 }, () => png), MAX_MESSAGE_PHOTOS).length, 4);
 });

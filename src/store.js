@@ -495,8 +495,11 @@ export async function markNoticesRead(ids) {
   return state.notices;
 }
 
-export async function sendMessage(threadId, text) {
-  const { message, thread } = await ThreadsApi.send(threadId, text);
+export async function sendMessage(threadId, text, photos = []) {
+  const { message, thread } = await ThreadsApi.send(threadId, {
+    text,
+    photos: Array.isArray(photos) ? photos : [],
+  });
   upsertThread(thread);
   syncBadges();
   return message;

@@ -181,6 +181,10 @@ export function normalizeStoredUploads(db) {
     if (!listing || !Array.isArray(listing.photos)) continue;
     listing.photos = listing.photos.map((photo) => rewrite(photo));
   }
+  for (const message of db.messages || []) {
+    if (!message || !Array.isArray(message.photos)) continue;
+    message.photos = message.photos.map((photo) => rewrite(photo));
+  }
   return changed;
 }
 
@@ -253,11 +257,15 @@ export function pickEmoji(category) {
 /** Listing photo cap. The sell form and POST /api/listings use the same number. */
 export const MAX_LISTING_PHOTOS = 10;
 
+/** Images attached to one chat message. */
+export const MAX_MESSAGE_PHOTOS = 4;
+
 /** Save data URL photos to disk. Always returns relative /uploads paths (or an external URL). */
-export function savePhotos(photos = []) {
+export function savePhotos(photos = [], max = MAX_LISTING_PHOTOS) {
+  const limit = Number.isInteger(max) && max > 0 ? max : MAX_LISTING_PHOTOS;
   const out = [];
   for (const p of photos || []) {
-    if (out.length >= MAX_LISTING_PHOTOS) break;
+    if (out.length >= limit) break;
     if (typeof p !== 'string' || !p) continue;
     const existing = uploadPath(p);
     if (existing) {

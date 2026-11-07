@@ -137,10 +137,10 @@ export const WantsApi = {
 export const ThreadsApi = {
   list: () => api('/api/threads', { auth: true }),
   get: (id) => api(`/api/threads/${encodeURIComponent(id)}`, { auth: true }),
-  send: (id, text) =>
+  send: (id, payload) =>
     api(`/api/threads/${encodeURIComponent(id)}/messages`, {
       method: 'POST',
-      body: { text },
+      body: typeof payload === 'string' ? { text: payload } : payload,
       auth: true,
     }),
 };

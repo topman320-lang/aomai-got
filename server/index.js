@@ -18,6 +18,8 @@ import {
   publicBaseFromRequest,
   publicUser,
   MAX_LISTING_PHOTOS,
+  MAX_MESSAGE_PHOTOS,
+  absolutePhotos,
   saveAvatarDataUrl,
   savePhotos,
   uploadPath,
@@ -276,7 +278,8 @@ function threadDto(thread, userId, db, req) {
         id: m.id,
         fromId: m.fromId,
         fromName: from?.name || '',
-        text: m.text,
+        text: m.text || '',
+        photos: absolutePhotos(Array.isArray(m.photos) ? m.photos : [], base),
         createdAt: m.createdAt,
       };
     }),
@@ -305,17 +308,20 @@ function ensureThread(db, listing, buyerId) {
   return thread;
 }
 
-function pushMessage(db, thread, fromId, text) {
+function pushMessage(db, thread, fromId, text, photos = []) {
+  const body = String(text || '').trim();
+  const imgs = Array.isArray(photos) ? photos.filter((p) => typeof p === 'string' && p) : [];
+  if (!body && !imgs.length) return null;
   const msg = {
     id: id('m-'),
     threadId: thread.id,
     fromId,
-    text: String(text || '').trim(),
+    text: body,
+    photos: imgs,
     createdAt: Date.now(),
   };
-  if (!msg.text) return null;
   db.messages.push(msg);
-  thread.preview = msg.text.split('\n')[0];
+  thread.preview = body.split('\n')[0] || '相片';
   thread.updatedAt = msg.createdAt;
   if (fromId === thread.buyerId) {
     thread.sellerUnread = true;
@@ -977,25 +983,44 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
     return res.status(403).json({ error: 'FORBIDDEN' });
   }
   const text = String(req.body?.text || '').trim();
-  if (!text) return res.status(400).json({ error: 'INVALID_INPUT' });
-  const msg = pushMessage(db, thread, req.user.id, text);
+  const incomingPhotos = req.body?.photos;
+  let photos = [];
+  if (Array.isArray(incomingPhotos)) {
+    const photoCount = incomingPhotos.filter((p) => typeof p === 'string' && p).length;
+    if (photoCount > MAX_MESSAGE_PHOTOS) {
+      return res.status(400).json({
+        error: 'TOO_MANY_PHOTOS',
+        message: `每則訊息最多 ${MAX_MESSAGE_PHOTOS} 張相片`,
+      });
+    }
+    photos = savePhotos(incomingPhotos, MAX_MESSAGE_PHOTOS);
+  }
+  if (!text && !photos.length) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入訊息或加上相片' });
+  }
+  const msg = pushMessage(db, thread, req.user.id, text, photos);
+  if (!msg) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入訊息或加上相片' });
+  }
   const peerId = req.user.id === thread.buyerId ? thread.sellerId : thread.buyerId;
   notifyUser(db, {
     userId: peerId,
     kind: 'message',
     title: req.user.name || '新訊息',
-    body: text.split('\n')[0],
+    body: (msg.text || '相片').split('\n')[0],
     href: `chat/${thread.id}`,
     refId: msg.id,
   });
   touch(db, req.user.id);
   persist();
+  const base = publicBaseFor(req);
   res.status(201).json({
     message: {
       id: msg.id,
       fromId: msg.fromId,
       fromName: req.user.name,
       text: msg.text,
+      photos: absolutePhotos(msg.photos, base),
       createdAt: msg.createdAt,
     },
     thread: threadDto(thread, req.user.id, db, req),
