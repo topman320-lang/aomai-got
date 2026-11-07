@@ -27,7 +27,8 @@ From repo root: `npm run server` (after `npm run server:install` once).
 
 - DB: `server/data/aomai.json` (gitignored; path mirrors planned `aomai.db`)
 - Uploads: `server/uploads/`
-- Privacy: `GET /privacy`
+- Privacy: `GET /privacy`（contact `mogot.app@gmail.com`）
+- Support: `GET /support`（same mailbox; App Store support URL）
 
 ## Env
 
@@ -41,6 +42,8 @@ From repo root: `npm run server` (after `npm run server:install` once).
 
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
+| GET | `/privacy` | no | Public privacy policy. Contact `mogot.app@gmail.com` |
+| GET | `/support` | no | Public support page. Same mailbox |
 | GET | `/api/badges` | yes | `{ messages, offers, notices }` — unread threads, offers waiting on you, unread in-app notices |
 | GET | `/api/listings?limit&offset` | optional | Public browse hides sold. `mine=1` (auth) is the signed-in seller's inventory, including sold. Omit `limit` for every matching row. With `limit`, also returns `total`, `hasMore`, `nextOffset` |
 | PUT | `/api/offers/:id/handoff` | yes | Buyer or seller, accepted offer only. `{ placeId, customPlace?, when, note? }` |

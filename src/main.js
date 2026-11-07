@@ -1,4 +1,4 @@
-import { API_BASE, privacyUrl } from './api.js';
+import { API_BASE, privacyUrl, supportUrl } from './api.js';
 import { listingSharePayload } from './share.js';
 import {
   MAX_VOICE_SECONDS,
@@ -745,18 +745,26 @@ function renderReset() {
   });
 }
 
-function renderPrivacy() {
+function renderHostedPage({ title, src }) {
   const content = `
     <header class="topbar">
       <button class="back" type="button" data-go="me" aria-label="返回">←</button>
-      <h1>隱私政策</h1>
+      <h1>${escapeHtml(title)}</h1>
     </header>
     <div class="privacy-box">
       <p class="meta">載入中…</p>
-      <iframe class="privacy-frame" title="隱私政策" src="${escapeAttr(privacyUrl())}"></iframe>
-      <p class="meta" style="padding:12px 0">若無法顯示，請開啟：<a href="${escapeAttr(privacyUrl())}" target="_blank" rel="noopener">${escapeHtml(privacyUrl())}</a></p>
+      <iframe class="privacy-frame" title="${escapeAttr(title)}" src="${escapeAttr(src)}"></iframe>
+      <p class="meta" style="padding:12px 0">若無法顯示，請開啟：<a href="${escapeAttr(src)}" target="_blank" rel="noopener">${escapeHtml(src)}</a></p>
     </div>`;
   app.innerHTML = shell(content, { noTab: true });
+}
+
+function renderPrivacy() {
+  renderHostedPage({ title: '隱私政策', src: privacyUrl() });
+}
+
+function renderSupport() {
+  renderHostedPage({ title: '支援', src: supportUrl() });
 }
 
 /* ---------- Screens ---------- */
@@ -3813,6 +3821,7 @@ function showAbout() {
         <p>澳門鄰里二手 · 議價為主</p>
         <p class="meta">MoGOT</p>
         <p class="meta" style="margin:8px 0 16px">一物一故事 · 閑置亦有價</p>
+        <button type="button" class="btn ghost" id="about-support" style="width:100%;margin-bottom:8px">支援與聯絡</button>
         <button type="button" class="btn ghost" id="about-privacy" style="width:100%;margin-bottom:8px">隱私政策</button>
         <button type="button" class="btn primary" id="about-close" style="width:100%">關閉</button>
       </div>
@@ -3823,6 +3832,10 @@ function showAbout() {
     if (e.target === overlay) close();
   });
   overlay.querySelector('#about-close')?.addEventListener('click', close);
+  overlay.querySelector('#about-support')?.addEventListener('click', () => {
+    close();
+    go('support');
+  });
   overlay.querySelector('#about-privacy')?.addEventListener('click', () => {
     close();
     go('privacy');
@@ -3906,6 +3919,7 @@ async function renderMe(token = nextView()) {
           <span class="theme-switch" aria-hidden="true"></span>
         </span>
       </button>
+      <button class="menu-row" type="button" data-go="support"><span>支援與聯絡</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" data-go="privacy"><span>隱私政策</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" id="about"><span>關於澳賣GOT</span><span class="arrow">→</span></button>
       ${
@@ -4188,6 +4202,9 @@ async function route() {
       break;
     case 'privacy':
       renderPrivacy();
+      break;
+    case 'support':
+      renderSupport();
       break;
     default:
       go('home');

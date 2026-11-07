@@ -20,7 +20,8 @@
 - **訊息／議價**：底部紅點顯示未讀訊息、需要你回覆的出價，以及新提醒。我的 → 訊息提醒可開本機通知。關掉 App 的商店推播尚未接入，見 `STORE_CHECKLIST.md`
 - **我的**：我的刊登、已售、收藏，以及街坊成交與評價
 - **信任**：只顯示街坊之間的成交、回覆與短評。平台不鑑定、不代收款、不代為寄倉
-- **隱私政策**：`GET http://127.0.0.1:8787/privacy`
+- **隱私政策**：`GET http://127.0.0.1:8787/privacy`（聯絡電郵 `mogot.app@gmail.com`）
+- **支援**：`GET http://127.0.0.1:8787/support`（同一電郵；上架支援網址用這個路徑）
 
 底部導覽：首頁 · 訊息 · 刊登(+) · 議價 · 我的
 
@@ -69,7 +70,7 @@ npm run preview
 - JWT（jsonwebtoken）+ bcryptjs
 - Capacitor iOS / Android 包殼（上架仍需 Mac + Developer 帳號）
 
-詳見 `server/README.md`。上架文案、圖示、推播憑證見 `STORE_CHECKLIST.md`。
+詳見 `server/README.md`。可直接貼上 App Store Connect 的文案、截圖尺寸與隱私營養標籤草稿見 `docs/APP_STORE.md`。圖示與推播憑證見 `STORE_CHECKLIST.md`。
 
 ## 品牌 Logo
 
@@ -121,7 +122,7 @@ npm run build:mobile      # = vite build + npx cap sync
 4. 在 Xcode：**Signing & Capabilities** → 勾選 *Automatically manage signing* → 選你的 **Team**（需已加入 [Apple Developer Program](https://developer.apple.com/programs/)）。
 5. 上方裝置選 **Any iOS Device (arm64)**（不要選模擬器）。
 6. 選單 **Product → Archive**。成功後在 Organizer 按 **Distribute App** → App Store Connect → Upload。
-7. 到 [App Store Connect](https://appstoreconnect.apple.com/) 建立 App（Bundle ID 選 `com.aomai.got`），填審核資料、截圖、隱私政策等，再提交審核。
+7. 到 [App Store Connect](https://appstoreconnect.apple.com/) 建立 App（Bundle ID 選 `com.aomai.got`）。名稱、副標題、描述、關鍵字、支援網址 `https://aomai-got.onrender.com/support`、隱私政策網址見 `docs/APP_STORE.md`。截圖請自行擷取。填完再提交審核。
 
 > 沒有付費 Developer 帳號就無法 Archive 上傳；免費帳號只能裝到自己的測試機。
 
