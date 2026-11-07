@@ -15,7 +15,23 @@ import {
   setToken,
 } from './api.js';
 
-export const CATEGORIES = ['全部', '潮流', '服飾', '美妝', '數碼', '家電', '家居', '運動', '母嬰', '其他'];
+export const CATEGORIES = [
+  '全部',
+  '潮流',
+  '服飾',
+  '美妝',
+  '數碼',
+  '家電',
+  '家居',
+  '運動',
+  '母嬰',
+  '遊戲',
+  '卡牌',
+  '寵物用品',
+  '票券／會籍',
+  '書本',
+  '其他',
+];
 export const LOCATIONS = ['澳門 · 附近', '氹仔', '中區', '路環', '黑沙環', '筷子基'];
 export const CONDITION_OPTIONS = [
   { value: '全新', label: '全新', hint: '未使用，包裝或配件齊' },
