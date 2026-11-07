@@ -42,7 +42,7 @@ From repo root: `npm run server` (after `npm run server:install` once).
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
 | GET | `/api/badges` | yes | `{ messages, offers, notices }` — unread threads, offers waiting on you, unread in-app notices |
-| GET | `/api/listings?limit&offset` | optional | Omit `limit` for the full list (我的). With `limit`, also returns `total`, `hasMore`, `nextOffset` |
+| GET | `/api/listings?limit&offset` | optional | Public browse hides sold. `mine=1` (auth) is the signed-in seller's inventory, including sold. Omit `limit` for every matching row. With `limit`, also returns `total`, `hasMore`, `nextOffset` |
 | PUT | `/api/offers/:id/handoff` | yes | Buyer or seller, accepted offer only. `{ placeId, customPlace?, when, note? }` |
 | POST | `/api/offers/:id/handoff/confirm` | yes | Confirms the current proposal. Both sides must confirm |
 | GET | `/api/notifications` | yes | In-app notices for messages, offers, handoff |

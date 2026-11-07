@@ -158,9 +158,9 @@ function cleanBound(value) {
   return n;
 }
 
-/** Same rules as GET /api/listings: title, description, place, category, and price. */
+/** Same rules as public GET /api/listings. Sold rows stay off the home feed. */
 export function listingMatches(listing, { q = '', category = '全部', min = null, max = null } = {}) {
-  if (!listing) return false;
+  if (!listing || listing.sold) return false;
   if (category && category !== '全部' && listing.category !== category) return false;
   const query = String(q || '').trim().toLowerCase();
   if (query) {
@@ -249,13 +249,16 @@ export async function bootstrap() {
 
 export async function refreshListings(params = {}) {
   const { listings } = await ListingsApi.list(params);
+  const rows = Array.isArray(listings) ? listings : [];
   const priceFiltered = params.min != null || params.max != null;
-  if (!params.q && (!params.category || params.category === '全部') && !priceFiltered) {
-    state.listings = listings;
+  const scoped = Boolean(params.q || (params.category && params.category !== '全部') || priceFiltered || params.mine);
+  if (!scoped) {
+    const kept = state.listings.filter((l) => l.sold && !rows.some((n) => n.id === l.id));
+    state.listings = [...rows, ...kept];
   } else {
-    for (const l of listings) upsertListing(l);
+    for (const l of rows) upsertListing(l);
   }
-  return listings;
+  return rows;
 }
 
 export async function fetchHomeListings({ q = '', category = '全部', min = null, max = null, limit, offset } = {}) {
@@ -495,11 +498,13 @@ export async function markNoticesRead(ids) {
   return state.notices;
 }
 
-export async function sendMessage(threadId, text, photos = []) {
-  const { message, thread } = await ThreadsApi.send(threadId, {
+export async function sendMessage(threadId, text, photos = [], audio = null) {
+  const payload = {
     text,
     photos: Array.isArray(photos) ? photos : [],
-  });
+  };
+  if (audio) payload.audio = audio;
+  const { message, thread } = await ThreadsApi.send(threadId, payload);
   upsertThread(thread);
   syncBadges();
   return message;

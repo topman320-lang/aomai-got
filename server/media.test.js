@@ -16,6 +16,9 @@ const {
   publicBaseFromRequest,
   MAX_LISTING_PHOTOS,
   MAX_MESSAGE_PHOTOS,
+  MAX_VOICE_SECONDS,
+  presentAudio,
+  saveMessageAudio,
   savePhotos,
   uploadPath,
   usablePublicBase,
@@ -124,4 +127,86 @@ test('savePhotos caps chat images at 4 when asked', () => {
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   assert.equal(savePhotos([png], MAX_MESSAGE_PHOTOS).length, 1);
   assert.equal(savePhotos(Array.from({ length: 6 }, () => png), MAX_MESSAGE_PHOTOS).length, 4);
+});
+
+function audioDataUrl(mime, buf) {
+  return `data:${mime};base64,${buf.toString('base64')}`;
+}
+
+function tinyWav() {
+  const data = Buffer.alloc(32);
+  const buf = Buffer.alloc(44 + data.length);
+  buf.write('RIFF', 0);
+  buf.writeUInt32LE(36 + data.length, 4);
+  buf.write('WAVE', 8);
+  buf.write('fmt ', 12);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(16000, 24);
+  buf.writeUInt32LE(32000, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write('data', 36);
+  buf.writeUInt32LE(data.length, 40);
+  data.copy(buf, 44);
+  return buf;
+}
+
+test('saveMessageAudio stores wav webm mp4 and ogg, and rejects non-audio', () => {
+  assert.equal(MAX_VOICE_SECONDS, 60);
+  assert.deepEqual(saveMessageAudio(null), { audio: null });
+
+  const wav = saveMessageAudio({ data: audioDataUrl('audio/wav', tinyWav()), duration: 3.2 });
+  assert.match(wav.audio.url, /^\/uploads\/aud-[a-f0-9]+\.wav$/);
+  assert.equal(wav.audio.duration, 3);
+  assert.equal(fs.existsSync(path.join(process.env.UPLOADS_DIR, path.basename(wav.audio.url))), true);
+
+  const webm = Buffer.alloc(24);
+  webm[0] = 0x1a;
+  webm[1] = 0x45;
+  webm[2] = 0xdf;
+  webm[3] = 0xa3;
+  const savedWebm = saveMessageAudio({
+    data: 'data:audio/webm;codecs=opus;base64,' + webm.toString('base64'),
+    duration: 60,
+  });
+  assert.match(savedWebm.audio.url, /\.webm$/);
+
+  const mp4 = Buffer.alloc(24);
+  mp4.write('ftyp', 4);
+  assert.match(saveMessageAudio({ data: audioDataUrl('audio/mp4', mp4), duration: 8 }).audio.url, /\.mp4$/);
+
+  const ogg = Buffer.alloc(24);
+  ogg.write('OggS', 0);
+  assert.match(saveMessageAudio({ data: audioDataUrl('audio/ogg', ogg), duration: 8 }).audio.url, /\.ogg$/);
+
+  const mp3 = Buffer.alloc(24);
+  mp3.write('ID3', 0);
+  assert.match(saveMessageAudio({ data: audioDataUrl('audio/mpeg', mp3), duration: 8 }).audio.url, /\.mp3$/);
+
+  const png =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  assert.equal(saveMessageAudio({ data: png, duration: 4 }).error, 'INVALID_AUDIO');
+  assert.equal(
+    saveMessageAudio({ data: audioDataUrl('audio/webm', Buffer.from(png.split(',')[1], 'base64')), duration: 4 }).error,
+    'INVALID_AUDIO'
+  );
+  assert.equal(saveMessageAudio({ data: audioDataUrl('audio/wav', tinyWav()), duration: 0.1 }).error, 'AUDIO_TOO_SHORT');
+  assert.equal(saveMessageAudio({ data: audioDataUrl('audio/wav', tinyWav()), duration: 90 }).error, 'AUDIO_TOO_LONG');
+  assert.equal(
+    saveMessageAudio({ data: audioDataUrl('audio/wav', tinyWav()), duration: 4 }, { maxBytes: 40 }).error,
+    'AUDIO_TOO_LARGE'
+  );
+  assert.equal(saveMessageAudio('data:audio/wav;base64,AAAA').error, 'INVALID_AUDIO');
+});
+
+test('voice notes are rewritten like chat photos', () => {
+  const stored = 'http://127.0.0.1:10000/uploads/aud-aee50efe2689.webm';
+  const db = { messages: [{ id: 'm-voice', audio: { url: stored, duration: 12 } }] };
+  assert.equal(normalizeStoredUploads(db), true);
+  assert.equal(db.messages[0].audio.url, '/uploads/aud-aee50efe2689.webm');
+  assert.equal(presentAudio(db.messages[0].audio, PUBLIC).url, `${PUBLIC}/uploads/aud-aee50efe2689.webm`);
+  assert.equal(presentAudio({ url: 'javascript:alert(1)', duration: 4 }, PUBLIC), null);
+  assert.equal(presentAudio({ url: '/uploads/img-aee50efe2689.jpg', duration: 4 }, PUBLIC), null);
 });

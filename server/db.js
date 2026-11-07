@@ -182,8 +182,13 @@ export function normalizeStoredUploads(db) {
     listing.photos = listing.photos.map((photo) => rewrite(photo));
   }
   for (const message of db.messages || []) {
-    if (!message || !Array.isArray(message.photos)) continue;
-    message.photos = message.photos.map((photo) => rewrite(photo));
+    if (!message) continue;
+    if (Array.isArray(message.photos)) {
+      message.photos = message.photos.map((photo) => rewrite(photo));
+    }
+    if (message.audio && typeof message.audio === 'object' && typeof message.audio.url === 'string') {
+      message.audio.url = rewrite(message.audio.url);
+    }
   }
   return changed;
 }
@@ -275,6 +280,21 @@ export const MAX_LISTING_PHOTOS = 10;
 /** Images attached to one chat message. */
 export const MAX_MESSAGE_PHOTOS = 4;
 
+/** One voice note per message. 16 kHz mono WAV for 60s is about 1.9MB. */
+export const MAX_VOICE_SECONDS = 60;
+export const MAX_VOICE_BYTES = 3 * 1024 * 1024;
+
+const AUDIO_EXT = {
+  'audio/webm': 'webm',
+  'audio/mp4': 'mp4',
+  'audio/mpeg': 'mp3',
+  'audio/ogg': 'ogg',
+  'audio/wav': 'wav',
+  'audio/wave': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/vnd.wave': 'wav',
+};
+
 /** Save data URL photos to disk. Always returns relative /uploads paths (or an external URL). */
 export function savePhotos(photos = [], max = MAX_LISTING_PHOTOS) {
   const limit = Number.isInteger(max) && max > 0 ? max : MAX_LISTING_PHOTOS;
@@ -312,4 +332,99 @@ export function savePhotos(photos = [], max = MAX_LISTING_PHOTOS) {
 
 export function absolutePhotos(photos, publicBase) {
   return (photos || []).map((p) => (p ? presentUpload(p, publicBase) : p));
+}
+
+function parseAudioDataUrl(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  const comma = trimmed.indexOf(',');
+  if (!trimmed.startsWith('data:') || comma < 0) return null;
+  const parts = trimmed
+    .slice(5, comma)
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length || !parts.some((part) => part.toLowerCase() === 'base64')) return null;
+  return { mime: parts[0].toLowerCase(), b64: trimmed.slice(comma + 1) };
+}
+
+function normalizeVoiceDuration(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0.4 || n > MAX_VOICE_SECONDS + 1) return null;
+  return Math.max(1, Math.min(MAX_VOICE_SECONDS, Math.round(n)));
+}
+
+/** Container sniff so a renamed image or text file is not stored as a voice note. */
+function audioMagicOk(buf, ext) {
+  if (!buf || buf.length < 12) return false;
+  if (ext === 'webm') {
+    return buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3;
+  }
+  if (ext === 'ogg') {
+    return buf.toString('ascii', 0, 4) === 'OggS';
+  }
+  if (ext === 'mp3') {
+    if (buf.toString('ascii', 0, 3) === 'ID3') return true;
+    return buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0;
+  }
+  if (ext === 'mp4') {
+    return buf.toString('ascii', 4, 8) === 'ftyp';
+  }
+  if (ext === 'wav') {
+    return buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WAVE';
+  }
+  return false;
+}
+
+/**
+ * Persist one chat voice note. `input` is `{ data, duration }` where `data`
+ * is a base64 audio data URL. Returns `{ audio }` or `{ error, message }`.
+ * Pass `{ maxBytes }` only from tests.
+ */
+export function saveMessageAudio(input, { maxBytes = MAX_VOICE_BYTES } = {}) {
+  if (input == null || input === false || input === '') return { audio: null };
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    return { error: 'INVALID_AUDIO', message: '語音格式不正確' };
+  }
+  const duration = normalizeVoiceDuration(input.duration);
+  if (duration == null) {
+    const n = Number(input.duration);
+    if (Number.isFinite(n) && n > MAX_VOICE_SECONDS) {
+      return { error: 'AUDIO_TOO_LONG', message: `錄音最長 ${MAX_VOICE_SECONDS} 秒` };
+    }
+    if (Number.isFinite(n) && n >= 0 && n < 0.4) {
+      return { error: 'AUDIO_TOO_SHORT', message: '錄音太短' };
+    }
+    return { error: 'INVALID_AUDIO', message: '語音格式不正確' };
+  }
+  const parsed = parseAudioDataUrl(input.data);
+  if (!parsed) return { error: 'INVALID_AUDIO', message: '語音格式不正確' };
+  const ext = AUDIO_EXT[parsed.mime];
+  if (!ext) return { error: 'INVALID_AUDIO', message: '只接受 webm、mp4、mp3、ogg 或 wav 音訊' };
+  let buf;
+  try {
+    buf = Buffer.from(String(parsed.b64).replace(/\s/g, ''), 'base64');
+  } catch {
+    return { error: 'INVALID_AUDIO', message: '語音格式不正確' };
+  }
+  if (!buf.length || buf.length < 16) return { error: 'INVALID_AUDIO', message: '語音檔無效' };
+  if (buf.length > maxBytes) return { error: 'AUDIO_TOO_LARGE', message: '語音檔太大' };
+  if (!audioMagicOk(buf, ext)) return { error: 'INVALID_AUDIO', message: '只接受音訊檔' };
+  ensureDirs();
+  const name = `${id('aud-')}.${ext}`;
+  fs.writeFileSync(path.join(UPLOADS_DIR, name), buf);
+  return { audio: { url: `/uploads/${name}`, duration } };
+}
+
+/** Client URL for a stored voice note. External and non-audio values are dropped. */
+export function presentAudio(audio, publicBase = '') {
+  if (!audio || typeof audio !== 'object' || Array.isArray(audio)) return null;
+  const path = uploadPath(audio.url);
+  if (!path || !/\.(webm|mp4|mp3|ogg|wav)$/i.test(path)) return null;
+  const duration = Number(audio.duration);
+  if (!Number.isFinite(duration)) return null;
+  return {
+    url: presentUpload(path, publicBase),
+    duration: Math.max(0, Math.min(MAX_VOICE_SECONDS, Math.round(duration))),
+  };
 }
