@@ -17,7 +17,7 @@
   "devDependencies": {
     "vite": "^8.3.6"
   },
-  "description": "澳賣 GOT — Macau neighborly secondhand bargaining marketplace prototype",
+  "description": "澳賣GOT (MoGOT) — Macau neighborly secondhand bargaining marketplace prototype",
   "dependencies": {
     "@capacitor/android": "^8.6.0",
     "@capacitor/cli": "^8.6.0",

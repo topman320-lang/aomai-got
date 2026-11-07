@@ -1,7 +1,7 @@
 {
-  "name": "澳賣 GOT",
-  "short_name": "澳賣",
-  "description": "澳門鄰里二手議價。面交為主，平台不託管、不鑑定。",
+  "name": "澳賣GOT",
+  "short_name": "澳賣GOT",
+  "description": "澳賣GOT（MoGOT）。澳門鄰里二手議價。面交為主，平台不託管、不鑑定。",
   "id": "/",
   "start_url": "/",
   "scope": "/",

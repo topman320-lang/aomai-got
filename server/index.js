@@ -335,7 +335,7 @@ app.get('/privacy', (_req, res) => {
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>隱私政策 · 澳賣 GOT</title>
+<title>隱私政策 · 澳賣GOT</title>
 <style>
   body{font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif;max-width:680px;margin:0 auto;padding:32px 20px 64px;line-height:1.7;color:#111;background:#fff}
   h1{font-size:22px;margin:0 0 8px}
@@ -345,9 +345,9 @@ app.get('/privacy', (_req, res) => {
 </style>
 </head>
 <body>
-  <h1>澳賣 GOT 隱私政策</h1>
+  <h1>澳賣GOT 隱私政策</h1>
   <p class="muted">適用於澳門特別行政區 · 最後更新：2026 年 11 月</p>
-  <p>澳賣 GOT（下稱「本服務」）是一個以鄰里議價為主的二手物品交流平台。我們重視你的個人資料，並依本政策說明蒐集、使用與保存方式。</p>
+  <p>澳賣GOT（MoGOT，下稱「本服務」）是一個以鄰里議價為主的二手物品交流平台。我們重視你的個人資料，並依本政策說明蒐集、使用與保存方式。</p>
   <h2>一、我們蒐集什麼</h2>
   <ul>
     <li>帳號資料：使用者名稱、個人簡介、頭像、電郵、密碼（加密儲存）。</li>
@@ -1148,7 +1148,7 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`澳賣 GOT API http://127.0.0.1:${PORT}`);
+  console.log(`澳賣GOT API http://127.0.0.1:${PORT}`);
   console.log(`Privacy  http://127.0.0.1:${PORT}/privacy`);
   console.log(`Demo     demo@aomai.got / demo1234`);
 });

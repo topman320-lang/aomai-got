@@ -1,6 +1,8 @@
-# 澳賣 GOT
+# 澳賣GOT
 
 澳門鄰里二手議價市集 — 白底黑字 VSCO 風 SPA + Express API。
+
+英文簡稱：**MoGOT**
 
 標語：**一物一故事 · 閑置亦有價**
 
@@ -87,7 +89,8 @@ Capacitor 上架時，請用這兩款裁成各尺寸 App Icon（iOS `AppIcon.app
 
 | 項目 | 值 |
 |------|-----|
-| App 顯示名稱 | 澳賣 GOT |
+| App 顯示名稱 | 澳賣GOT |
+| 英文簡稱 | MoGOT |
 | Bundle / App ID | `com.aomai.got` |
 | Web 輸出目錄 | `dist/`（Vite 預設） |
 | 設定檔 | `capacitor.config.json` |

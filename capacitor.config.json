@@ -1,6 +1,6 @@
 {
   "appId": "com.aomai.got",
-  "appName": "澳賣 GOT",
+  "appName": "澳賣GOT",
   "webDir": "dist",
   "plugins": {
     "PushNotifications": {

@@ -1,7 +1,8 @@
-# 澳賣 GOT 上架清單
+# 澳賣GOT 上架清單
 
 Bundle ID／Application ID：**`com.aomai.got`**  
-顯示名稱：**澳賣 GOT**  
+顯示名稱：**澳賣GOT**  
+英文名稱：**MoGOT**  
 網站：<https://aomai-got.onrender.com>  
 隱私政策：<https://aomai-got.onrender.com/privacy>  
 示範帳號：`demo@aomai.got` / `demo1234`
@@ -20,7 +21,8 @@ Bundle ID／Application ID：**`com.aomai.got`**
 
 | 欄位 | 建議文字 |
 |------|----------|
-| 名稱 | 澳賣 GOT |
+| 名稱 | 澳賣GOT |
+| 英文名稱 | MoGOT |
 | 副標 | 澳門鄰里二手議價 |
 | 宣傳文字 | 閑置物品同街坊議價，當面睇貨再付款。 |
 | 關鍵字 | 二手,澳門,議價,面交,閑置,街坊 |
@@ -29,7 +31,7 @@ Bundle ID／Application ID：**`com.aomai.got`**
 
 ### 描述（可直接改完再貼）
 
-澳賣 GOT 是澳門鄰里的二手議價市集。
+澳賣GOT（英文名 MoGOT）是澳門鄰里的二手議價市集。
 
 你可刊登閑置物品、同街坊出價、用訊息約見面。價錢與成色由賣家自己標，買家自己判斷。平台不鑑定真偽，不代收款，不代為寄倉，也不提供擔保交易。
 
