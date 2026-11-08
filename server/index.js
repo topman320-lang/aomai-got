@@ -554,46 +554,60 @@ app.get('/api/listings/:id', optionalAuth, (req, res) => {
   res.json({ listing: listingDto(l, db, publicBaseFor(req), req.user?.id || '') });
 });
 
-app.post('/api/listings', auth, (req, res) => {
-  const title = String(req.body?.title || '').trim();
-  const price = Number(req.body?.price);
-  const category = String(req.body?.category || '其他').trim();
-  const location = String(req.body?.location || '澳門 · 附近').trim();
-  const condition = String(req.body?.condition || '良好').trim();
-  const description = String(req.body?.description || '').trim();
-  const negotiable = req.body?.negotiable !== false;
+function readListingFields(body) {
+  const title = String(body?.title || '').trim();
+  const price = Number(body?.price);
+  const category = String(body?.category || '其他').trim();
+  const location = String(body?.location || '澳門 · 附近').trim();
+  const condition = String(body?.condition || '良好').trim();
+  const description = String(body?.description || '').trim();
+  const negotiable = body?.negotiable !== false;
   if (!title || !price || price <= 0 || !description) {
-    return res.status(400).json({ error: 'INVALID_INPUT', message: '請填寫標題、價錢與描述' });
+    return { error: { status: 400, error: 'INVALID_INPUT', message: '請填寫標題、價錢與描述' } };
   }
-  const incomingPhotos = req.body?.photos;
+  const incomingPhotos = body?.photos;
   if (Array.isArray(incomingPhotos)) {
     const photoCount = incomingPhotos.filter((p) => typeof p === 'string' && p).length;
     if (photoCount > MAX_LISTING_PHOTOS) {
-      return res.status(400).json({
-        error: 'TOO_MANY_PHOTOS',
-        message: `最多 ${MAX_LISTING_PHOTOS} 張相片`,
-      });
+      return {
+        error: { status: 400, error: 'TOO_MANY_PHOTOS', message: `最多 ${MAX_LISTING_PHOTOS} 張相片` },
+      };
     }
   }
   const photos = savePhotos(incomingPhotos || []);
   if (!photos.length) {
-    return res.status(400).json({ error: 'PHOTO_REQUIRED', message: '請至少上傳一張相片' });
+    return { error: { status: 400, error: 'PHOTO_REQUIRED', message: '請至少上傳一張相片' } };
   }
+  return {
+    value: {
+      title,
+      price,
+      negotiable,
+      category,
+      location,
+      condition,
+      description,
+      handover: normalizeHandover(body?.handover, description),
+      photos,
+    },
+  };
+}
+
+function sendListingWriteError(res, error) {
+  return res.status(error.status).json({ error: error.error, message: error.message });
+}
+
+app.post('/api/listings', auth, (req, res) => {
+  const parsed = readListingFields(req.body);
+  if (parsed.error) return sendListingWriteError(res, parsed.error);
   const db = loadDb();
+  const fields = parsed.value;
   const listing = {
     id: id('l-'),
-    title,
-    price,
-    negotiable,
-    category,
-    location,
-    condition,
-    description,
-    handover: normalizeHandover(req.body?.handover, description),
+    ...fields,
     sellerId: req.user.id,
-    tone: pickTone(title),
-    emoji: pickEmoji(category),
-    photos,
+    tone: pickTone(fields.title),
+    emoji: pickEmoji(fields.category),
     sold: false,
     createdAt: Date.now(),
   };
@@ -601,6 +615,33 @@ app.post('/api/listings', auth, (req, res) => {
   touch(db, req.user.id);
   persist();
   res.status(201).json({ listing: listingDto(listing, db, publicBaseFor(req), req.user.id) });
+});
+
+app.patch('/api/listings/:id', auth, (req, res) => {
+  const db = loadDb();
+  const listing = db.listings.find((l) => l.id === req.params.id);
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listing.sellerId !== req.user.id) {
+    return res.status(403).json({ error: 'FORBIDDEN', message: '只有刊登者可以修改' });
+  }
+  const parsed = readListingFields(req.body);
+  if (parsed.error) return sendListingWriteError(res, parsed.error);
+  const fields = parsed.value;
+  listing.title = fields.title;
+  listing.price = fields.price;
+  listing.negotiable = fields.negotiable;
+  listing.category = fields.category;
+  listing.location = fields.location;
+  listing.condition = fields.condition;
+  listing.description = fields.description;
+  listing.handover = fields.handover;
+  listing.photos = fields.photos;
+  listing.tone = pickTone(fields.title);
+  listing.emoji = pickEmoji(fields.category);
+  listing.updatedAt = Date.now();
+  touch(db, req.user.id);
+  persist();
+  res.json({ listing: listingDto(listing, db, publicBaseFor(req), req.user.id) });
 });
 
 app.patch('/api/listings/:id/sold', auth, (req, res) => {

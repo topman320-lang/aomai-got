@@ -475,6 +475,12 @@ export async function addListing(payload) {
   return listing;
 }
 
+export async function updateListing(id, payload) {
+  const { listing } = await ListingsApi.update(id, payload);
+  upsertListing(listing);
+  return listing;
+}
+
 export async function addOffer({ listingId, amount, meetup, message }) {
   const { offer, thread, updated } = await ListingsApi.createOffer(listingId, {
     amount,

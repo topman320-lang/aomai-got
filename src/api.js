@@ -110,6 +110,8 @@ export const ListingsApi = {
   },
   get: (id) => api(`/api/listings/${encodeURIComponent(id)}`, { auth: 'if' }),
   create: (payload) => api('/api/listings', { method: 'POST', body: payload, auth: true }),
+  update: (id, payload) =>
+    api(`/api/listings/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload, auth: true }),
   setSold: (id, sold) =>
     api(`/api/listings/${encodeURIComponent(id)}/sold`, {
       method: 'PATCH',

@@ -53,6 +53,7 @@ import {
   refreshWants,
   register,
   respondToOffer,
+  updateListing,
   requestPasswordReset,
   resetPassword,
   saveHandoff,
@@ -99,10 +100,17 @@ function isSold(l) {
   return Boolean(l?.sold);
 }
 
+function negotiateBadge(negotiable) {
+  if (negotiable) {
+    return `<span class="badge negotiate yes" aria-label="可議價" title="可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M2 6.2 4.6 8.8 10 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter"/></svg><span>可議價</span></span>`;
+  }
+  return `<span class="badge negotiate no" aria-label="不可議價" title="不可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M3 3.1 9 9M9 3.1 3 9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"/></svg><span>否</span></span>`;
+}
+
 function listingBadges(l) {
   const bits = [];
   if (isSold(l)) bits.push('<span class="badge sold">已售</span>');
-  else if (l.negotiable) bits.push('<span class="badge">可議</span>');
+  else bits.push(negotiateBadge(Boolean(l?.negotiable)));
   return bits.join('');
 }
 
@@ -119,7 +127,9 @@ function trustItems(l) {
   const items = [];
   if (l?.condition) items.push({ key: 'condition', label: `成色 ${l.condition}` });
   items.push({ key: 'handover', label: handoverOf(l) });
-  if (l?.negotiable && !isSold(l)) items.push({ key: 'offer', label: '可議價' });
+  if (!isSold(l)) {
+    items.push(l?.negotiable ? { key: 'offer', label: '可議價' } : { key: 'fixed', label: '不議價' });
+  }
   return items;
 }
 
@@ -1996,6 +2006,7 @@ async function renderDetail(id, token = nextView()) {
         ${sold ? '<span class="pill sold">已售</span>' : ''}
       </div>
       <h2>${escapeHtml(l.title)}</h2>
+      ${isSeller ? `<button class="text-link listing-edit" type="button" data-go="edit/${escapeAttr(l.id)}">編輯刊登</button>` : ''}
       <div class="trust-row">${trustHtml(l)}</div>
       <p class="trust-note">鄰里二手 · 成色由賣家自行標示。平台不提供鑑定，也不代為寄倉。</p>
     </section>
@@ -2175,23 +2186,51 @@ async function renderBargain(id, token = nextView()) {
   });
 }
 
-function renderPost(token = nextView()) {
-  if (!requireAuth('post')) return;
-  const photos = Array.from({ length: MAX_LISTING_PHOTOS }, () => '');
+async function renderPost(token = nextView(), listingId = '') {
+  const editing = Boolean(listingId);
+  if (!requireAuth(editing ? `edit/${listingId}` : 'post')) return;
+  let existing = null;
+  if (editing) {
+    app.innerHTML = shell(`<header class="topbar"><h1>編輯刊登</h1></header>${skeletonGrid()}`, { tab: 'me' });
+    try {
+      existing = await refreshListing(listingId);
+    } catch (err) {
+      existing = getListing(listingId) || null;
+      if (!existing) {
+        if (!isView(token)) return;
+        go('mine');
+        errToast(err, '載入刊登失敗');
+        return;
+      }
+    }
+    if (!isView(token)) return;
+    if (!existing) {
+      go('mine');
+      toast('找不到這筆刊登');
+      return;
+    }
+    if (!isLoggedIn() || existing.sellerId !== getState().me.id) {
+      go(`detail/${listingId}`);
+      toast('只有刊登者可以修改');
+      return;
+    }
+  }
+  const seeded = Array.isArray(existing?.photos) ? existing.photos.filter(Boolean).slice(0, MAX_LISTING_PHOTOS) : [];
+  const photos = Array.from({ length: MAX_LISTING_PHOTOS }, (_, i) => seeded[i] || '');
   let photoBusy = false;
   let step = 0;
   let hint = null;
   let hintError = false;
   let hintSeq = 0;
   const draft = {
-    title: '',
-    category: CATEGORIES.find((c) => c !== '全部') || '其他',
-    location: LOCATIONS[0],
-    condition: '良好',
-    handover: HANDOVERS[0],
-    description: '',
-    price: '',
-    negotiable: true,
+    title: existing?.title || '',
+    category: existing?.category || CATEGORIES.find((c) => c !== '全部') || '其他',
+    location: existing?.location || LOCATIONS[0],
+    condition: existing?.condition || '良好',
+    handover: existing?.handover || HANDOVERS[0],
+    description: existing?.description || '',
+    price: existing && existing.price != null && existing.price !== '' ? String(existing.price) : '',
+    negotiable: existing ? existing.negotiable !== false : true,
   };
   const STEPS = ['相片', '狀況', '價錢', '確認'];
 
@@ -2210,7 +2249,7 @@ function renderPost(token = nextView()) {
         if (src) {
           return `
             <div class="photo-slot filled has-img">
-              <img src="${escapeAttr(src)}" alt="" />
+              <img src="${escapeAttr(mediaSrc(src))}" alt="" />
               <label class="photo-replace">${albumInput}</label>
               <button type="button" class="photo-clear" data-clear="${i}" aria-label="移除照片">×</button>
             </div>`;
@@ -2442,7 +2481,7 @@ function renderPost(token = nextView()) {
     const btn = app.querySelector('#wiz-next');
     if (btn) btn.disabled = true;
     try {
-      const listing = await addListing({
+      const payload = {
         title: draft.title.trim(),
         price: Number(draft.price),
         category: draft.category,
@@ -2452,11 +2491,12 @@ function renderPost(token = nextView()) {
         handover: draft.handover || HANDOVERS[0],
         negotiable: draft.negotiable !== false,
         photos: photos.filter(Boolean),
-      });
+      };
+      const listing = editing ? await updateListing(listingId, payload) : await addListing(payload);
       go(`detail/${listing.id}`);
-      toast('已發佈');
+      toast(editing ? '已更新刊登' : '已發佈');
     } catch (err) {
-      errToast(err, '發佈失敗：請檢查圖片大小或網路');
+      errToast(err, editing ? '更新失敗：請檢查圖片大小或網路' : '發佈失敗：請檢查圖片大小或網路');
       if (btn) btn.disabled = false;
     }
   };
@@ -2473,13 +2513,15 @@ function renderPost(token = nextView()) {
     if (step === 2) loadHint();
   };
 
-  const optionHtml = (values, current) =>
-    values
+  const optionHtml = (values, current) => {
+    const list = current && !values.includes(current) ? [current, ...values] : values;
+    return list
       .map(
         (v) =>
           `<option value="${escapeAttr(v)}"${v === current ? ' selected' : ''}>${escapeHtml(v)}</option>`
       )
       .join('');
+  };
 
   const paint = () => {
     const stepBar = `<div class="steps" aria-label="刊登步驟">${STEPS.map(
@@ -2503,13 +2545,18 @@ function renderPost(token = nextView()) {
         <div class="field">
           <label>狀況</label>
           <div class="condition-list">
-            ${CONDITION_OPTIONS.map(
-              (c) =>
-                `<button type="button" class="condition-opt ${c.value === draft.condition ? 'active' : ''}" data-condition="${escapeAttr(c.value)}">
+            ${(CONDITION_OPTIONS.some((c) => c.value === draft.condition)
+              ? CONDITION_OPTIONS
+              : [{ value: draft.condition, label: draft.condition, hint: '目前標示' }, ...CONDITION_OPTIONS]
+            )
+              .map(
+                (c) =>
+                  `<button type="button" class="condition-opt ${c.value === draft.condition ? 'active' : ''}" data-condition="${escapeAttr(c.value)}">
                   <span class="condition-label">${escapeHtml(c.label)}</span>
                   <span class="condition-hint">${escapeHtml(c.hint)}</span>
                 </button>`
-            ).join('')}
+              )
+              .join('')}
           </div>
           <p class="photo-hint">成色由你自己標示，買家會看到。平台不提供鑑定。</p>
         </div>
@@ -2527,10 +2574,12 @@ function renderPost(token = nextView()) {
         <div class="field">
           <label>交收</label>
           <div class="chips tight" id="handover-chips">
-            ${HANDOVERS.map(
-              (h) =>
-                `<button type="button" class="chip ${h === draft.handover ? 'active' : ''}" data-handover="${escapeAttr(h)}">${escapeHtml(h)}</button>`
-            ).join('')}
+            ${(HANDOVERS.includes(draft.handover) ? HANDOVERS : [draft.handover, ...HANDOVERS])
+              .map(
+                (h) =>
+                  `<button type="button" class="chip ${h === draft.handover ? 'active' : ''}" data-handover="${escapeAttr(h)}">${escapeHtml(h)}</button>`
+              )
+              .join('')}
           </div>
           <input type="hidden" name="handover" id="handover" value="${escapeAttr(draft.handover)}" />
         </div>
@@ -2557,7 +2606,7 @@ function renderPost(token = nextView()) {
       const filled = photos.filter(Boolean);
       const thumbs = filled.length
         ? `<div class="photo-row summary-photos">${filled
-            .map((src) => `<div class="photo-slot filled has-img"><img src="${escapeAttr(src)}" alt="" /></div>`)
+            .map((src) => `<div class="photo-slot filled has-img"><img src="${escapeAttr(mediaSrc(src))}" alt="" /></div>`)
             .join('')}</div>`
         : '<p class="photo-hint">未加相片。請返回加上至少一張。</p>';
       fields = `
@@ -2565,10 +2614,14 @@ function renderPost(token = nextView()) {
         <div class="summary-line"><span>標題</span><span>${escapeHtml(draft.title)}</span></div>
         <div class="summary-line"><span>狀況</span><span>${escapeHtml(draft.condition)} · ${escapeHtml(draft.category)}</span></div>
         <div class="summary-line"><span>地點</span><span>${escapeHtml(draft.location)} · ${escapeHtml(draft.handover)}</span></div>
-        <div class="summary-line"><span>價錢</span><span>${money(draft.price)}${draft.negotiable ? ' · 可議' : ''}</span></div>
+        <div class="summary-line"><span>價錢</span><span>${money(draft.price)} · ${draft.negotiable ? '可議價' : '否'}</span></div>
         ${hint ? `<div class="summary-line"><span>參考中間價</span><span>${money(hint.mid)}</span></div>` : ''}
         <p class="desc">${escapeHtml(draft.description)}</p>
-        <p class="trust-footnote">發佈後由你與街坊直接交收。平台不鑑定、不代收款。</p>
+        <p class="trust-footnote">${
+          editing
+            ? '儲存後這筆刊登會立刻更新，街坊看到最新內容。平台不鑑定、不代收款。'
+            : '發佈後由你與街坊直接交收。平台不鑑定、不代收款。'
+        }</p>
         <button class="text-link" type="button" data-edit-step="0">改相片或標題</button>
         <button class="text-link" type="button" data-edit-step="1">改狀況</button>
         <button class="text-link" type="button" data-edit-step="2">改價錢</button>`;
@@ -2576,17 +2629,17 @@ function renderPost(token = nextView()) {
 
     app.innerHTML = shell(
       `
-      <header class="topbar"><h1>刊登商品</h1></header>
+      <header class="topbar"><h1>${editing ? '編輯刊登' : '刊登商品'}</h1></header>
       <form class="form" id="post-form">
         ${stepBar}
         <p class="photo-hint">第 ${step + 1} 步，共 4 步</p>
         ${fields}
         <div class="wizard-nav">
           <button class="btn ghost" type="button" id="wiz-back">${step === 0 ? '取消' : '上一步'}</button>
-          <button class="btn primary" type="button" id="wiz-next">${step === 3 ? '發佈' : '下一步'}</button>
+          <button class="btn primary" type="button" id="wiz-next">${step === 3 ? (editing ? '儲存更新' : '發佈') : '下一步'}</button>
         </div>
       </form>`,
-      { tab: 'post' }
+      { tab: editing ? 'me' : 'post' }
     );
 
     if (step === 0) {
@@ -2622,7 +2675,7 @@ function renderPost(token = nextView()) {
       btn.addEventListener('click', () => goStep(Number(btn.dataset.editStep)));
     });
     app.querySelector('#wiz-back')?.addEventListener('click', () => {
-      if (step === 0) go('home');
+      if (step === 0) go(editing ? 'mine' : 'home');
       else goStep(step - 1);
     });
     app.querySelector('#wiz-next')?.addEventListener('click', () => {
@@ -3603,13 +3656,16 @@ async function renderBargainsTab(token = nextView()) {
   app.querySelector('#retry-load')?.addEventListener('click', () => renderBargainsTab());
 }
 
-function managedGrid(list, labelFor) {
+function managedGrid(list, labelFor, { edit = false } = {}) {
   return `<div class="grid">${list
     .map(
       (l) => `
         <div class="card-stack">
           ${listingCard(l)}
-          <button class="card-foot" type="button" data-sold-toggle="${escapeAttr(l.id)}">${escapeHtml(labelFor(l))}</button>
+          <div class="card-actions${edit ? ' has-edit' : ''}">
+            ${edit ? `<button class="card-foot" type="button" data-go="edit/${escapeAttr(l.id)}">編輯</button>` : ''}
+            <button class="card-foot" type="button" data-sold-toggle="${escapeAttr(l.id)}">${escapeHtml(labelFor(l))}</button>
+          </div>
         </div>`
     )
     .join('')}</div>`;
@@ -3659,7 +3715,7 @@ async function renderOwned(token, { title, sold, path }) {
   const body = error && !list.length
     ? listErrorHtml('刊登載入失敗')
     : list.length
-      ? `${error ? listRetryBar() : ''}${managedGrid(list, () => (sold ? '取消已售' : '標示已售'))}`
+      ? `${error ? listRetryBar() : ''}${managedGrid(list, () => (sold ? '取消已售' : '標示已售'), { edit: !sold })}`
       : empty;
   app.innerHTML = shell(`${header}${body}`, { tab: 'me' });
   bindSoldToggles(() => renderOwned(nextView(), { title, sold, path }));
@@ -4154,7 +4210,14 @@ async function route() {
       await renderBargain(b, token);
       break;
     case 'post':
-      renderPost(token);
+      await renderPost(token);
+      break;
+    case 'edit':
+      if (!b) {
+        go('mine');
+        break;
+      }
+      await renderPost(token, b);
       break;
     case 'messages':
       await renderMessages(token);
