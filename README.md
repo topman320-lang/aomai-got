@@ -67,6 +67,7 @@ npm run preview
 
 - Vite + Vanilla HTML / CSS / JS（hash routing）
 - Express API（port 8787）+ JSON 檔案庫 `server/data/aomai.json`
+- Render Free 不能保留檔案。`render.yaml` 用付費 Starter，並把 1 GB 磁碟掛在 `/var/data`。只有 `/var/data` 底下的路徑在重新部署後還在（`DATA_DIR=/var/data/db`、`UPLOADS_DIR=/var/data/uploads`）
 - JWT（jsonwebtoken）+ bcryptjs
 - Capacitor iOS / Android 包殼（上架仍需 Mac + Developer 帳號）
 
