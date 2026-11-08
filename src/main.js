@@ -51,6 +51,7 @@ import {
   refreshMyOffers,
   refreshThreads,
   refreshWants,
+  openListingThread,
   register,
   respondToOffer,
   updateListing,
@@ -102,9 +103,9 @@ function isSold(l) {
 
 function negotiateBadge(negotiable) {
   if (negotiable) {
-    return `<span class="badge negotiate yes" aria-label="可議價" title="可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M2 6.2 4.6 8.8 10 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter"/></svg><span>可議價</span></span>`;
+    return `<span class="badge negotiate yes" data-negotiable="yes" aria-label="可議價" title="可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M2 6.2 4.6 8.8 10 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter"/></svg><span>可議價</span></span>`;
   }
-  return `<span class="badge negotiate no" aria-label="不可議價" title="不可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M3 3.1 9 9M9 3.1 3 9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"/></svg><span>否</span></span>`;
+  return `<span class="badge negotiate no" data-negotiable="no" aria-label="不可議價" title="不可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M3 3.1 9 9M9 3.1 3 9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"/></svg><span>否</span></span>`;
 }
 
 function listingBadges(l) {
@@ -200,8 +201,8 @@ function listingCard(l, { go: dest = `detail/${l.id}` } = {}) {
   return `
         <button class="card ${sold ? 'sold' : ''}" type="button" data-go="${dest}">
           <div class="thumb" style="background:${escapeAttr(l.tone || '')}">
-            ${listingBadges(l)}
             ${thumbInner(l)}
+            ${listingBadges(l)}
           </div>
           <div class="card-body">
             <div class="card-title">${escapeHtml(l.title)}</div>
@@ -1928,34 +1929,39 @@ async function renderDetail(id, token = nextView()) {
     : !sold
       ? `<button class="btn ghost" type="button" id="want">${wanted ? '已收藏' : '收藏'}</button>`
       : '';
-  const receiptBar = showReceipt
-    ? `
-      <button class="btn primary" type="button" id="confirm-receipt">${sold ? '為賣家評分' : '確認收貨'}</button>
-      ${receiptSecondary}`
-    : '';
+
+  const dmButton = isSeller
+    ? ''
+    : `<button class="btn ghost" type="button" id="dm-seller">私訊</button>`;
 
   const actionButtons = responseBar
-    ? responseBar
+    ? `${responseBar}${dmButton}`
     : isSeller
       ? `
       <button class="btn ${sold ? 'ghost' : 'primary'}" type="button" id="toggle-sold">
         ${sold ? '取消已售出' : '標示為已售出'}
       </button>
       <button class="btn ghost" type="button" data-go="mine">我的刊登</button>`
-      : receiptBar
-        ? receiptBar
+      : showReceipt
+        ? `
+      <button class="btn primary" type="button" id="confirm-receipt">${sold ? '為賣家評分' : '確認收貨'}</button>
+      ${dmButton}
+      ${receiptSecondary}`
         : sold
           ? `
       <button class="btn primary" type="button" disabled aria-disabled="true">已售出</button>
+      ${dmButton}
       <button class="btn ghost" type="button" disabled aria-disabled="true">收藏</button>`
           : myOffer?.status === 'accepted'
             ? `
       <button class="btn primary" type="button" id="go-thread">查看對話</button>
+      ${dmButton}
       <button class="btn ghost" type="button" id="want">${wanted ? '已收藏' : '收藏'}</button>`
             : `
       <button class="btn primary" type="button" id="go-bargain">${
         !myOffer ? '議價' : myOffer.status === 'pending' ? '更新出價' : '再出價'
       }</button>
+      ${dmButton}
       <button class="btn ghost" type="button" id="want">${wanted ? '已收藏' : '收藏'}</button>`;
 
   const offerNote = myOffer
@@ -2050,6 +2056,23 @@ async function renderDetail(id, token = nextView()) {
   bindListingShare(app, l);
   bindOfferStatus(app, { onDone: () => renderDetail(id) });
   app.querySelector('#go-bargain')?.addEventListener('click', () => openOfferSheet(l));
+  app.querySelector('#dm-seller')?.addEventListener('click', async () => {
+    if (!requireAuth(`detail/${l.id}`)) return;
+    const button = app.querySelector('#dm-seller');
+    if (button) button.disabled = true;
+    try {
+      const thread = await openListingThread(l.id);
+      if (!thread?.id) {
+        if (button) button.disabled = false;
+        toast('無法開啟私訊');
+        return;
+      }
+      go(`chat/${thread.id}`);
+    } catch (err) {
+      if (button) button.disabled = false;
+      errToast(err, '無法開啟私訊');
+    }
+  });
   app.querySelector('#go-thread')?.addEventListener('click', () => {
     if (thread?.id) go(`chat/${thread.id}`);
     else go('bargains');
@@ -2716,7 +2739,7 @@ async function renderMessages(token = nextView()) {
                 <span class="name">${escapeHtml(t.peerName)}</span>
                 <span class="thread-side">${t.offer ? statusPill(t.offer) : ''}<span class="meta tiny">${escapeHtml(t.time)}</span></span>
               </div>
-              <div class="preview">${escapeHtml(t.preview)}</div>
+              <div class="preview">${escapeHtml(t.preview || '尚未傳訊息')}</div>
             </div>
             <div class="thumb-sm" style="background:${l?.tone || '#f5f5f5'}">${l ? thumbInner(l) : '📦'}</div>
             ${t.unread ? '<span class="dot" aria-label="未讀"></span>' : '<span style="width:8px"></span>'}

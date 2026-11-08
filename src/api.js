@@ -141,6 +141,8 @@ export const WantsApi = {
 
 export const ThreadsApi = {
   list: () => api('/api/threads', { auth: true }),
+  openForListing: (listingId) =>
+    api(`/api/listings/${encodeURIComponent(listingId)}/thread`, { method: 'POST', auth: true }),
   get: (id) => api(`/api/threads/${encodeURIComponent(id)}`, { auth: true }),
   send: (id, payload) =>
     api(`/api/threads/${encodeURIComponent(id)}/messages`, {
