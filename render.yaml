@@ -1,17 +1,27 @@
+# Free has an ephemeral filesystem, so files disappear on every deploy or restart.
+# Starter (paid) plus the disk below is required. Only paths under /var/data survive redeploys.
+# Same service name as the live web service so Blueprint adopt updates aomai-got in place.
 services:
   - type: web
     name: aomai-got
     runtime: node
-    plan: free
+    repo: https://github.com/topman320-lang/aomai-got
+    branch: main
+    region: singapore
+    plan: starter
     buildCommand: npm install && npm --prefix server install && VITE_API_URL= npm run build
     startCommand: npm --prefix server start
     healthCheckPath: /api/listings
+    disk:
+      name: mogot-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: "22"
       - key: JWT_SECRET
-        generateValue: true
+        sync: false
       - key: DATA_DIR
-        value: ./data
+        value: /var/data/db
       - key: UPLOADS_DIR
-        value: ./uploads
+        value: /var/data/uploads

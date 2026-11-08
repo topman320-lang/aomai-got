@@ -23,8 +23,9 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 
 ## Persistence
 
-- DB: `server/data/aomai.json` (gitignored; path mirrors planned `aomai.db`)
-- Uploads: `server/uploads/`
+- DB: `server/data/aomai.json` (gitignored; path mirrors planned `aomai.db`). `DATA_DIR` overrides the directory; the file is `$DATA_DIR/aomai.json`.
+- Uploads: `server/uploads/`, or `UPLOADS_DIR` when set.
+- Render Free cannot keep files across deploys. `render.yaml` uses the paid Starter plan and a 1 GB disk mounted at `/var/data`. Only paths under `/var/data` survive redeploys (`DATA_DIR=/var/data/db`, `UPLOADS_DIR=/var/data/uploads`).
 - Privacy: `GET /privacy`（contact `mogot.app@gmail.com`）
 - Support: `GET /support`（same mailbox; App Store support URL）
 
@@ -34,6 +35,8 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 |-----|---------|
 | `PORT` | `8787` |
 | `JWT_SECRET` | `aomai-got-dev-secret-change-me` |
+| `DATA_DIR` | `server/data`. On Render: `/var/data/db` |
+| `UPLOADS_DIR` | `server/uploads`. On Render: `/var/data/uploads` |
 | `PUBLIC_BASE` | request host, or `RENDER_EXTERNAL_URL` when set. Loopback values are ignored so production does not emit `127.0.0.1`. |
 
 ## Extra routes
