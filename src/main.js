@@ -102,17 +102,13 @@ function isSold(l) {
 }
 
 function negotiateBadge(negotiable) {
-  if (negotiable) {
-    return `<span class="badge negotiate yes" data-negotiable="yes" aria-label="可議價" title="可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M2 6.2 4.6 8.8 10 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter"/></svg><span>可議價</span></span>`;
-  }
-  return `<span class="badge negotiate no" data-negotiable="no" aria-label="不可議價" title="不可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M3 3.1 9 9M9 3.1 3 9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"/></svg><span>否</span></span>`;
+  if (!negotiable) return '';
+  return `<span class="badge negotiate yes" data-negotiable="yes" aria-label="可議價" title="可議價"><svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M2 6.2 4.6 8.8 10 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" stroke-linejoin="miter"/></svg><span>可議價</span></span>`;
 }
 
 function listingBadges(l) {
-  const bits = [];
-  if (isSold(l)) bits.push('<span class="badge sold">已售</span>');
-  else bits.push(negotiateBadge(Boolean(l?.negotiable)));
-  return bits.join('');
+  if (isSold(l)) return '<span class="badge sold">已售</span>';
+  return negotiateBadge(Boolean(l?.negotiable));
 }
 
 function priceHtml(n, sold = false) {
