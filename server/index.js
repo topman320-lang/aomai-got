@@ -697,6 +697,20 @@ app.post('/api/listings/:id/want', auth, (req, res) => {
   res.json({ ok: true, wants: db.wants.filter((w) => w.userId === req.user.id).map((w) => w.listingId) });
 });
 
+/** Open or create the signed-in buyer's private thread with this listing's seller. */
+app.post('/api/listings/:id/thread', auth, (req, res) => {
+  const db = loadDb();
+  const listing = db.listings.find((l) => l.id === req.params.id);
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listing.sellerId === req.user.id) {
+    return res.status(400).json({ error: 'OWN_LISTING', message: '不能私訊自己的刊登' });
+  }
+  const thread = ensureThread(db, listing, req.user.id);
+  touch(db, req.user.id);
+  persist();
+  res.json({ thread: threadDto(thread, req.user.id, db, req) });
+});
+
 app.delete('/api/listings/:id/want', auth, (req, res) => {
   const db = loadDb();
   db.wants = db.wants.filter((w) => !(w.userId === req.user.id && w.listingId === req.params.id));

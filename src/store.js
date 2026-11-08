@@ -545,6 +545,13 @@ export async function markNoticesRead(ids) {
   return state.notices;
 }
 
+export async function openListingThread(listingId) {
+  const { thread } = await ThreadsApi.openForListing(listingId);
+  upsertThread(thread);
+  syncBadges();
+  return thread;
+}
+
 export async function sendMessage(threadId, text, photos = [], audio = null) {
   const payload = {
     text,

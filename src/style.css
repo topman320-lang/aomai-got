@@ -415,22 +415,24 @@ img {
   position: absolute;
   left: 8px;
   top: 8px;
+  z-index: 2;
   background: var(--bg);
   border: 1px solid var(--ink);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  padding: 3px 6px;
-  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .badge.negotiate {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   max-width: calc(100% - 16px);
   letter-spacing: 0.02em;
   line-height: 1.2;
-  padding: 3px 6px 3px 4px;
+  padding: 5px 8px 5px 6px;
 }
 
 .badge.negotiate span {
@@ -440,8 +442,8 @@ img {
 }
 
 .badge.negotiate svg {
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   flex: none;
   display: block;
 }
@@ -644,8 +646,14 @@ img {
   border-top: 1px solid var(--line);
   padding: 12px 16px calc(12px + var(--safe-b));
   display: flex;
-  gap: 10px;
+  gap: 8px;
   z-index: 30;
+}
+
+.actionbar .btn {
+  white-space: nowrap;
+  min-width: 0;
+  padding: 0 8px;
 }
 
 .screen.docked > .actionbar {
@@ -688,6 +696,7 @@ img {
   cursor: not-allowed;
 }
 
+.actionbar:has(#dm-seller) .btn,
 .actionbar:has([data-offer-action]) .btn {
   font-size: 13px;
   letter-spacing: 0;
