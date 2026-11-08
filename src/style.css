@@ -423,6 +423,41 @@ img {
   font-weight: 600;
 }
 
+.badge.negotiate {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: calc(100% - 16px);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  padding: 3px 6px 3px 4px;
+}
+
+.badge.negotiate span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge.negotiate svg {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  display: block;
+}
+
+.badge.negotiate.yes {
+  background: var(--ink);
+  color: var(--on-ink);
+  border-color: var(--ink);
+}
+
+.badge.negotiate.no {
+  background: var(--bg);
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
 .card-body {
   padding: 8px 10px 10px;
   display: flex;
@@ -2084,9 +2119,20 @@ html[data-theme="dark"] .bubble-row.me .bubble-time {
   line-height: 1.2;
 }
 
-.trust-badge.trust-verified {
+.trust-badge.trust-verified,
+.trust-badge.trust-offer {
   background: var(--ink);
   color: var(--on-ink);
+}
+
+.trust-badge.trust-fixed {
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+.listing-edit {
+  display: inline-flex;
+  margin: 2px 0 8px;
 }
 
 .trust-note {
@@ -2635,6 +2681,16 @@ body.offer-open {
 
 .card-stack .card {
   width: 100%;
+}
+
+.card-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.card-actions.has-edit {
+  grid-template-columns: 1fr 1fr;
 }
 
 .card-foot {

@@ -10,7 +10,7 @@
     "build:mobile": "npm run build && npx cap sync",
     "open:ios": "npx cap open ios",
     "open:android": "npx cap open android",
-    "test": "node --test server/trust.test.js server/handoff.test.js server/paging.test.js server/seed.test.js server/media.test.js server/voice-api.test.js server/browse.test.js server/offers-auth.test.js server/public-pages.test.js src/share.test.js src/voice.test.js",
+    "test": "node --test server/trust.test.js server/handoff.test.js server/paging.test.js server/seed.test.js server/media.test.js server/voice-api.test.js server/browse.test.js server/offers-auth.test.js server/public-pages.test.js server/listings-edit.test.js src/share.test.js src/voice.test.js",
     "server": "npm --prefix server start",
     "server:install": "npm --prefix server install"
   },
