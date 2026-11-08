@@ -454,12 +454,6 @@ img {
   border-color: var(--ink);
 }
 
-.badge.negotiate.no {
-  background: var(--bg);
-  color: var(--ink);
-  border-color: var(--ink);
-}
-
 .card-body {
   padding: 8px 10px 10px;
   display: flex;
