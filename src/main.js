@@ -4268,6 +4268,7 @@ function renderProfile() {
             </label>
             <label class="photo-camera">
               <span class="photo-add-label">拍照</span>
+              <!-- capture opens the camera. Album input above must not set capture, or iOS hides the library. The camera purpose string lives in ios/App/App/Info.plist; without NSCameraUsageDescription, iOS kills the app on tap. -->
               <input class="photo-file-input" type="file" accept="image/*" capture="environment" data-avatar="camera" aria-label="拍照作為頭像" />
             </label>
             <button class="text-link" type="button" id="avatar-clear">移除照片</button>
