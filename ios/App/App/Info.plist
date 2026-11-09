@@ -66,5 +66,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>澳賣GOT 會在你按「拍照」時使用相機，用來拍攝頭像或刊登相片。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>澳賣GOT 只在你於對話裡按錄音時使用麥克風，用來傳送語音訊息。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>澳賣GOT 會在你從相簿選圖時讀取相片，用來設定頭像、刊登或聊天。</string>
 </dict>
 </plist>

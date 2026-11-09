@@ -178,6 +178,7 @@ export const ListingsApi = {
       body: { sold },
       auth: true,
     }),
+  remove: (id) => api(`/api/listings/${encodeURIComponent(id)}`, { method: 'DELETE', auth: true }),
   confirmReceipt: (id) =>
     api(`/api/listings/${encodeURIComponent(id)}/confirm-receipt`, { method: 'POST', auth: true }),
   want: (id) =>
@@ -210,6 +211,11 @@ export const ThreadsApi = {
       body: typeof payload === 'string' ? { text: payload } : payload,
       auth: true,
     }),
+  remove: (threadId, messageId) =>
+    api(
+      `/api/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`,
+      { method: 'DELETE', auth: true }
+    ),
 };
 
 export const OffersApi = {

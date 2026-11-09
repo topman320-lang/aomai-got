@@ -7,6 +7,7 @@ test('public browse hides sold listings from search and categories', () => {
     { id: 'open', title: '風扇', description: '還在', category: '家電', location: '氹仔', price: 50, sold: false, createdAt: 2 },
     { id: 'sold', title: '風扇已售', description: '已面交', category: '家電', location: '氹仔', price: 40, sold: true, createdAt: 3 },
     { id: 'other', title: '書', description: '小說', category: '書本', location: '澳門', price: 10, sold: false, createdAt: 1 },
+    { id: 'gone', title: '已移除風扇', description: '不應出現', category: '家電', location: '氹仔', price: 30, sold: false, removedAt: 9, createdAt: 4 },
   ];
   const home = filterBrowseListings(rows, {});
   assert.deepEqual(home.map((l) => l.id), ['open', 'other']);

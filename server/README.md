@@ -59,6 +59,9 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 | POST | `/api/auth/reset` | no | `{ token, password }` from the `#/reset` link. Link expires in 30 minutes |
 | GET | `/api/badges` | yes | `{ messages, offers, notices }` — unread threads, offers waiting on you, unread in-app notices |
 | GET | `/api/listings?limit&offset` | optional | Public browse hides sold. `mine=1` (auth) is the signed-in seller's inventory, including sold. Omit `limit` for every matching row. With `limit`, also returns `total`, `hasMore`, `nextOffset` |
+| DELETE | `/api/listings/:id` | yes | Seller only. Hides the listing from browse and 我的刊登. The row stays so old detail links still open as removed. Pending and countered offers on it are closed. Threads stay |
+| PATCH | `/api/offers/:id` | yes | `{ action: "cancel" }` — buyer only, while the offer is `pending`. Status becomes `cancelled`. Accepted, rejected, and countered offers cannot be cancelled |
+| DELETE | `/api/threads/:id/messages/:messageId` | yes | Sender only. Removes that message for both people and refreshes the thread preview |
 | PUT | `/api/offers/:id/handoff` | yes | Buyer or seller, accepted offer only. `{ placeId, customPlace?, when, note? }` |
 | POST | `/api/offers/:id/handoff/confirm` | yes | Confirms the current proposal. Both sides must confirm |
 | GET | `/api/notifications` | yes | In-app notices for messages, offers, handoff |

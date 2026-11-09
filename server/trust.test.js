@@ -94,6 +94,7 @@ test('badges count unread threads and offers that need a response', () => {
     { listingId: 'open', fromId: 'buyer', status: 'pending' },
     { listingId: 'open', fromId: 'buyer2', status: 'countered' },
     { listingId: 'open', fromId: 'buyer3', status: 'accepted' },
+    { listingId: 'open', fromId: 'buyer4', status: 'cancelled' },
     { listingId: 'done', fromId: 'buyer', status: 'pending' }
   );
   assert.deepEqual(badgeCountsFor(db, 'seller'), { messages: 1, offers: 1 });

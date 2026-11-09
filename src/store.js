@@ -139,7 +139,7 @@ export function syncBadges() {
     if (!offer || seen.has(offer.id)) return;
     seen.add(offer.id);
     const listing = state.listings.find((l) => l.id === offer.listingId);
-    if (listing?.sold) return;
+    if (listing?.sold || listing?.removed) return;
     const status = offer.status || 'pending';
     if (offer.fromId === me && status === 'countered') {
       offers += 1;
@@ -548,6 +548,13 @@ export async function openListingThread(listingId) {
   return thread;
 }
 
+export async function deleteMessage(threadId, messageId) {
+  const { thread } = await ThreadsApi.remove(threadId, messageId);
+  upsertThread(thread);
+  syncBadges();
+  return thread;
+}
+
 export async function sendMessage(threadId, text, photos = [], audio = null) {
   const payload = {
     text,
@@ -575,6 +582,21 @@ export async function addWant(listingId) {
 export async function removeWant(listingId) {
   const { wants } = await ListingsApi.unwant(listingId);
   state.wants = wants;
+}
+
+export async function deleteListing(listingId) {
+  const data = await ListingsApi.remove(listingId);
+  state.listings = state.listings.filter((l) => l.id !== listingId);
+  state.wants = (state.wants || []).filter((id) => id !== listingId);
+  const offers = Array.isArray(data?.offers) ? data.offers : [];
+  state.offers = [...offers.filter((o) => o.fromId === state.me.id), ...state.offers.filter((o) => o.listingId !== listingId)];
+  state.incomingOffers = [
+    ...offers.filter((o) => o.fromId !== state.me.id),
+    ...(state.incomingOffers || []).filter((o) => o.listingId !== listingId),
+  ];
+  for (const thread of data?.threads || []) upsertThread(thread);
+  syncBadges();
+  return data;
 }
 
 export async function setSold(listingId, sold) {

@@ -26,6 +26,8 @@ import {
   bootstrap,
   confirmHandoff,
   confirmReceipt,
+  deleteListing,
+  deleteMessage,
   fetchHomeListings,
   fetchUser,
   getBadges,
@@ -1243,6 +1245,50 @@ function bindOfferForm(form, listing, { onSuccess } = {}) {
   });
 }
 
+function confirmAction({ title, message, confirmLabel = '確定', cancelLabel = '取消' }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'offer-overlay';
+    overlay.innerHTML = `
+      <div class="offer-sheet confirm-sheet" role="dialog" aria-modal="true" aria-label="${escapeAttr(title)}">
+        <div class="offer-sheet-head">
+          <h2>${escapeHtml(title)}</h2>
+          <button type="button" class="offer-close" data-confirm="cancel" aria-label="關閉">×</button>
+        </div>
+        <p class="offer-ask">${escapeHtml(message)}</p>
+        <div class="confirm-actions">
+          <button class="btn ghost" type="button" data-confirm="cancel">${escapeHtml(cancelLabel)}</button>
+          <button class="btn primary" type="button" data-confirm="ok">${escapeHtml(confirmLabel)}</button>
+        </div>
+      </div>`;
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      document.body.classList.remove('offer-open');
+      resolve(ok);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') finish(false);
+    };
+    document.body.appendChild(overlay);
+    document.body.classList.add('offer-open');
+    document.addEventListener('keydown', onKey);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        finish(false);
+        return;
+      }
+      const kind = e.target.closest('[data-confirm]')?.dataset.confirm;
+      if (kind === 'cancel') finish(false);
+      if (kind === 'ok') finish(true);
+    });
+    overlay.querySelector('[data-confirm="ok"]')?.focus();
+  });
+}
+
 function closeOfferSheet() {
   document.querySelector('.offer-overlay')?.remove();
   document.body.classList.remove('offer-open');
@@ -1253,7 +1299,7 @@ function closeOfferSheet() {
 }
 
 function openOfferSheet(l) {
-  if (isSold(l)) return;
+  if (isSold(l) || l?.removed) return;
   if (!requireAuth(`detail/${l.id}`)) return;
   closeOfferSheet();
   const overlay = document.createElement('div');
@@ -1396,6 +1442,11 @@ function offerStatusView(offer, role) {
   if (status === 'accepted') {
     return { status, label: '已接受', detail: `議定 ${money(agreed)}`, sub: '見面安排在下面 · 平台不代收款' };
   }
+  if (status === 'cancelled') {
+    const detail =
+      role === 'buyer' ? '你已取消這筆出價' : role === 'seller' ? '買家已取消這筆出價' : '這筆出價已取消';
+    return { status, label: '已取消', detail, sub: `出價 ${money(amount)}` };
+  }
   if (status === 'rejected') {
     return { status, label: '已拒絕', detail: '這筆未談成', sub: `出價 ${money(amount)}` };
   }
@@ -1468,6 +1519,8 @@ function offerStatusHtml(offer, { role, showThreadLink = true, showButtons = tru
   } else if (showButtons && role === 'buyer' && view.status === 'countered') {
     actions.push('<button type="button" class="btn primary" data-offer-action="accept">接受回價</button>');
     actions.push('<button type="button" class="btn ghost" data-offer-action="reject">不接受</button>');
+  } else if (showButtons && role === 'buyer' && view.status === 'pending') {
+    actions.push('<button type="button" class="btn ghost" data-offer-action="cancel">取消出價</button>');
   }
   const counterForm =
     role === 'seller' && open
@@ -1560,6 +1613,7 @@ function handoffCardHtml(offer, role) {
 }
 
 function offerActionToast(role, action) {
+  if (action === 'cancel') return '已取消出價';
   if (action === 'counter') return '回價已送出';
   if (action === 'accept') return role === 'buyer' ? '已接受回價' : '已接受出價';
   return role === 'buyer' ? '未接受回價' : '已拒絕這筆出價';
@@ -1607,7 +1661,9 @@ function bindOfferStatus(root, { onDone } = {}) {
   });
 
   root.querySelectorAll('.offer-status').forEach((card) => {
-    card.querySelectorAll('[data-offer-action="accept"], [data-offer-action="reject"]').forEach((btn) => {
+    card.querySelectorAll(
+      '[data-offer-action="accept"], [data-offer-action="reject"], [data-offer-action="cancel"]'
+    ).forEach((btn) => {
       btn.addEventListener('click', () => run(card, { action: btn.dataset.offerAction }));
     });
     card.querySelector('.offer-counter-form')?.addEventListener('submit', (e) => {
@@ -1626,9 +1682,13 @@ function bindOfferStatus(root, { onDone } = {}) {
     });
   });
 
-  root.querySelectorAll('.actionbar [data-offer-action="accept"], .actionbar [data-offer-action="reject"]').forEach((btn) => {
-    btn.addEventListener('click', () => run(btn, { action: btn.dataset.offerAction }));
-  });
+  root
+    .querySelectorAll(
+      '.actionbar [data-offer-action="accept"], .actionbar [data-offer-action="reject"], .actionbar [data-offer-action="cancel"]'
+    )
+    .forEach((btn) => {
+      btn.addEventListener('click', () => run(btn, { action: btn.dataset.offerAction }));
+    });
 
   root.querySelectorAll('.handoff-card').forEach((form) => {
     const placeInput = form.querySelector('[name="placeId"]');
@@ -1950,6 +2010,25 @@ async function renderDetail(id, token = nextView()) {
     go('home');
     return;
   }
+  if (l.removed) {
+    const thread = getThreadByListing(l.id);
+    const content = `
+      <header class="topbar">
+        <button class="back" type="button" data-go="home" aria-label="返回">←</button>
+        <h1>商品詳情</h1>
+      </header>
+      <section class="price-block">
+        <h2>${escapeHtml(l.title || '商品')}</h2>
+        <p class="desc">這件刊登已移除，不再公開。之前的對話仍然保留。</p>
+      </section>
+      ${
+        thread?.id
+          ? `<div class="actionbar"><button class="btn primary" type="button" data-go="chat/${escapeAttr(thread.id)}">查看對話</button></div>`
+          : ''
+      }`;
+    app.innerHTML = shell(content, { noTab: true, screenClass: thread?.id ? 'docked' : '' });
+    return;
+  }
   if (uiGallery.id !== id) {
     uiGallery.id = id;
     uiGallery.index = 0;
@@ -1964,6 +2043,7 @@ async function renderDetail(id, token = nextView()) {
   const isOpenOffer = (o) => o && (o.status === 'pending' || o.status === 'countered' || !o.status);
   const sellerBarOffer = isSeller ? offers.find(isOpenOffer) : null;
   const buyerBar = !isSeller && !sold && myOffer?.status === 'countered';
+  const buyerWaiting = !isSeller && !sold && myOffer && (myOffer.status === 'pending' || !myOffer.status);
   const responseBar = sellerBarOffer
     ? offerBarHtml(sellerBarOffer, 'seller')
     : buyerBar
@@ -2007,8 +2087,13 @@ async function renderDetail(id, token = nextView()) {
       ${dmButton}
       <button class="btn ghost" type="button" id="want">${wanted ? '已收藏' : '收藏'}</button>`
             : `
+      ${
+        buyerWaiting
+          ? `<button class="btn ghost" type="button" data-offer-action="cancel" data-offer-id="${escapeAttr(myOffer.id)}" data-offer-role="buyer">取消出價</button>`
+          : ''
+      }
       <button class="btn primary" type="button" id="go-bargain">${
-        !myOffer ? '議價' : myOffer.status === 'pending' ? '更新出價' : '再出價'
+        !myOffer ? '議價' : myOffer.status === 'pending' || !myOffer.status ? '更新出價' : '再出價'
       }</button>
       ${dmButton}
       <button class="btn ghost" type="button" id="want">${wanted ? '已收藏' : '收藏'}</button>`;
@@ -2016,9 +2101,9 @@ async function renderDetail(id, token = nextView()) {
   const offerNote = myOffer
     ? `<div class="offer-block">
         <div class="section-label">我的議價</div>
-        ${offerStatusHtml(myOffer, { role: 'buyer', showButtons: !buyerBar })}
+        ${offerStatusHtml(myOffer, { role: 'buyer', showButtons: !buyerBar && !buyerWaiting })}
         ${
-          myOffer.status === 'rejected' && !sold
+          (myOffer.status === 'rejected' || myOffer.status === 'cancelled') && !sold
             ? `<button type="button" class="text-link offer-again" id="my-offer-link">再出價</button>`
             : ''
         }
@@ -2127,7 +2212,7 @@ async function renderDetail(id, token = nextView()) {
     else go('bargains');
   });
   app.querySelector('#my-offer-link')?.addEventListener('click', () => {
-    if (thread && myOffer?.status !== 'rejected') go(`chat/${thread.id}`);
+    if (thread && myOffer?.status !== 'rejected' && myOffer?.status !== 'cancelled') go(`chat/${thread.id}`);
     else openOfferSheet(l);
   });
   app.querySelector('#want')?.addEventListener('click', async () => {
@@ -2195,9 +2280,10 @@ async function renderBargain(id, token = nextView()) {
     go('home');
     return;
   }
-  if (isSold(l)) {
+  if (isSold(l) || l.removed) {
     go(`detail/${l.id}`);
-    toast('此商品已售出');
+    if (l.removed) toast('這件刊登已移除');
+    else toast('此商品已售出');
     return;
   }
   if (isLoggedIn() && l.sellerId === getState().me.id) {
@@ -3434,13 +3520,19 @@ async function renderChat(threadId, token = nextView()) {
             ? `<div class="bubble-text">${escapeHtml(m.text).replaceAll('\n', '<br/>')}</div>`
             : '';
           const voiceHtml = voiceBubbleHtml(m);
+          const deleteHtml = mine
+            ? `<button type="button" class="bubble-delete" data-delete-message="${escapeAttr(m.id)}">刪除</button>`
+            : '';
           return `
           <div class="bubble-row ${mine ? 'me' : 'peer'}">
             <div class="bubble">
               ${photoHtml}
               ${voiceHtml}
               ${textHtml}
-              <div class="bubble-time">${formatMsgTime(m.createdAt)}</div>
+              <div class="bubble-foot">
+                <span class="bubble-time">${formatMsgTime(m.createdAt)}</span>
+                ${deleteHtml}
+              </div>
             </div>
           </div>`;
         })
@@ -3452,14 +3544,14 @@ async function renderChat(threadId, token = nextView()) {
         <div class="mini" style="background:${l.tone}">${thumbInner(l)}</div>
         <div class="info">
           <div class="title">${escapeHtml(l.title)}</div>
-          <div class="meta">${money(l.price)}${isSold(l) ? ' · 已售' : l.negotiable ? ' · 可議' : ''}</div>
+          <div class="meta">${l.removed ? '刊登已移除' : `${money(l.price)}${isSold(l) ? ' · 已售' : l.negotiable ? ' · 可議' : ''}`}</div>
         </div>
         <span class="chat-strip-link">詳情</span>
       </button>`
     : '';
 
   const bargainLink =
-    l && !isSold(l) && l.sellerId !== meId && offer?.status !== 'accepted'
+    l && !isSold(l) && !l.removed && l.sellerId !== meId && offer?.status !== 'accepted'
       ? `<button class="btn ghost chat-bargain-link" type="button" data-go="bargain/${l.id}">出價</button>`
       : '';
   const chatTip = offer?.canHandoff ? '' : scamTipHtml('chat-tip');
@@ -3502,6 +3594,28 @@ async function renderChat(threadId, token = nextView()) {
     });
   });
   bindVoiceBubbles(log, messages);
+  log?.querySelectorAll('[data-delete-message]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const messageId = btn.dataset.deleteMessage;
+      if (!messageId) return;
+      const ok = await confirmAction({
+        title: '刪除訊息',
+        message: '刪除後，這則訊息會從對話中移除，對方也看不到。',
+        confirmLabel: '刪除',
+        cancelLabel: '取消',
+      });
+      if (!ok || !isView(token)) return;
+      btn.disabled = true;
+      try {
+        await deleteMessage(threadId, messageId);
+        toast('已刪除訊息');
+        renderChat(threadId);
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '刪除失敗');
+      }
+    });
+  });
   const voice = bindChatVoice(app, threadId);
 
   const input = app.querySelector('#chat-input');
@@ -3728,19 +3842,53 @@ async function renderBargainsTab(token = nextView()) {
   app.querySelector('#retry-load')?.addEventListener('click', () => renderBargainsTab());
 }
 
-function managedGrid(list, labelFor, { edit = false } = {}) {
+function managedGrid(list, labelFor, { edit = false, remove = false } = {}) {
+  const classes = ['card-actions', edit ? 'has-edit' : '', remove ? 'has-remove' : ''].filter(Boolean).join(' ');
   return `<div class="grid">${list
     .map(
       (l) => `
         <div class="card-stack">
           ${listingCard(l)}
-          <div class="card-actions${edit ? ' has-edit' : ''}">
+          <div class="${classes}">
             ${edit ? `<button class="card-foot" type="button" data-go="edit/${escapeAttr(l.id)}">編輯</button>` : ''}
             <button class="card-foot" type="button" data-sold-toggle="${escapeAttr(l.id)}">${escapeHtml(labelFor(l))}</button>
+            ${
+              remove
+                ? `<button class="card-foot" type="button" data-delete-listing="${escapeAttr(l.id)}">刪除刊登</button>`
+                : ''
+            }
           </div>
         </div>`
     )
     .join('')}</div>`;
+}
+
+function bindListingDeletes(rerender) {
+  app.querySelectorAll('[data-delete-listing]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.getAttribute('data-delete-listing');
+      const listing = getListing(id);
+      const title = listing?.title || '這件商品';
+      const ok = await confirmAction({
+        title: '刪除刊登',
+        message: `刪除「${title}」後，它會從你的刊登和首頁移除。已有的對話仍在，對方會看到刊登已移除。`,
+        confirmLabel: '刪除刊登',
+        cancelLabel: '取消',
+      });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        await deleteListing(id);
+        toast('已刪除刊登');
+        rerender();
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '刪除失敗');
+      }
+    });
+  });
 }
 
 function bindSoldToggles(rerender) {
@@ -3779,7 +3927,7 @@ async function renderOwned(token, { title, sold, path }) {
   }
   if (!isView(token)) return;
   const list = owned
-    .filter((l) => isSold(l) === sold)
+    .filter((l) => !l.removed && isSold(l) === sold)
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const empty = sold
     ? `<div class="empty">還沒有已售物品<br/>在商品詳情可以標示已售</div>`
@@ -3787,10 +3935,11 @@ async function renderOwned(token, { title, sold, path }) {
   const body = error && !list.length
     ? listErrorHtml('刊登載入失敗')
     : list.length
-      ? `${error ? listRetryBar() : ''}${managedGrid(list, () => (sold ? '取消已售' : '標示已售'), { edit: !sold })}`
+      ? `${error ? listRetryBar() : ''}${managedGrid(list, () => (sold ? '取消已售' : '標示已售'), { edit: !sold, remove: !sold })}`
       : empty;
   app.innerHTML = shell(`${header}${body}`, { tab: 'me' });
   bindSoldToggles(() => renderOwned(nextView(), { title, sold, path }));
+  bindListingDeletes(() => renderOwned(nextView(), { title, sold, path }));
   app.querySelector('#retry-load')?.addEventListener('click', () => renderOwned(nextView(), { title, sold, path }));
 }
 
@@ -4119,6 +4268,7 @@ function renderProfile() {
             </label>
             <label class="photo-camera">
               <span class="photo-add-label">拍照</span>
+              <!-- capture opens the camera. Album input above must not set capture, or iOS hides the library. The camera purpose string lives in ios/App/App/Info.plist; without NSCameraUsageDescription, iOS kills the app on tap. -->
               <input class="photo-file-input" type="file" accept="image/*" capture="environment" data-avatar="camera" aria-label="拍照作為頭像" />
             </label>
             <button class="text-link" type="button" id="avatar-clear">移除照片</button>
