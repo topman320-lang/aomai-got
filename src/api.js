@@ -1,6 +1,65 @@
 const TOKEN_KEY = 'aomai-got-token';
 
-export const API_BASE = import.meta.env.VITE_API_URL ?? (import.meta.env.PROD ? '' : 'http://127.0.0.1:8787');
+/** Live API. The website is same-origin with this host; native WebViews are not. */
+const PROD_API_ORIGIN = 'https://aomai-got.onrender.com';
+const DEV_API_ORIGIN = 'http://127.0.0.1:8787';
+
+/**
+ * Where `/api/...` is fetched.
+ *
+ * A non-empty `VITE_API_URL` wins, so an iOS build can pin the host with
+ * `VITE_API_URL=https://aomai-got.onrender.com npm run build:mobile`.
+ * Unset or empty (Render sets `VITE_API_URL=`) stays relative in a production
+ * web build and uses the local API in dev. `capacitor:`, `ionic:`, and
+ * `file:` are not that origin, so those shells use `PROD_API_ORIGIN` even
+ * when the baked-in value is empty.
+ */
+export function resolveApiBase({ viteApiUrl, prod = false, protocol = '' } = {}) {
+  const configured = normalizeApiBase(viteApiUrl);
+  if (configured) return configured;
+  if (isNativeShellProtocol(protocol)) return PROD_API_ORIGIN;
+  if (prod) return '';
+  return DEV_API_ORIGIN;
+}
+
+function normalizeApiBase(value) {
+  if (value == null) return '';
+  return String(value).trim().replace(/\/+$/, '');
+}
+
+function isNativeShellProtocol(protocol) {
+  const value = String(protocol || '').trim().toLowerCase();
+  const withColon = value.endsWith(':') ? value : `${value}:`;
+  return withColon === 'capacitor:' || withColon === 'ionic:' || withColon === 'file:';
+}
+
+function readBuildFlags() {
+  // Vite inlines these member expressions. Node's test runner has no env object.
+  try {
+    return {
+      viteApiUrl: import.meta.env.VITE_API_URL,
+      prod: Boolean(import.meta.env.PROD),
+    };
+  } catch {
+    return { viteApiUrl: undefined, prod: false };
+  }
+}
+
+function readPageProtocol() {
+  try {
+    if (typeof location === 'undefined' || !location) return '';
+    return location.protocol || '';
+  } catch {
+    return '';
+  }
+}
+
+const buildFlags = readBuildFlags();
+export const API_BASE = resolveApiBase({
+  viteApiUrl: buildFlags.viteApiUrl,
+  prod: buildFlags.prod,
+  protocol: readPageProtocol(),
+});
 
 export function getToken() {
   try {

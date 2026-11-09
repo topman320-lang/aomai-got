@@ -157,6 +157,8 @@ npm run build:mobile
 
 `npm run build:mobile` 等於 `vite build` 再 `npx cap sync`。也可分開跑 `npm run build` 與 `npx cap sync`。
 
+iOS WebView 使用 `capacitor:`（也可能是 `ionic:` 或 `file:`），API 要打 `https://aomai-got.onrender.com`。建置時可以加上 `VITE_API_URL=https://aomai-got.onrender.com`，也可以不設定，由 `src/api.js` 依原生協定自動改打公開站。空的 `VITE_API_URL` 只讓 Render 網頁維持相對路徑。細節見 [README.md](../README.md) 的「API 位址」。
+
 在 Mac 上打開 Xcode、簽署、Archive、上傳的完整步驟見 [README.md](../README.md) 的「Capacitor 原生包殼（iOS / Android）」。摘要只有這三步屬於本機文件範圍：
 
 ```bash
