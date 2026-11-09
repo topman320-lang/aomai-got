@@ -211,6 +211,7 @@ export const ThreadsApi = {
       body: typeof payload === 'string' ? { text: payload } : payload,
       auth: true,
     }),
+  hide: (id) => api(`/api/threads/${encodeURIComponent(id)}`, { method: 'DELETE', auth: true }),
   remove: (threadId, messageId) =>
     api(
       `/api/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`,
@@ -223,6 +224,7 @@ export const OffersApi = {
   incoming: () => api('/api/offers/incoming', { auth: true }),
   respond: (id, payload) =>
     api(`/api/offers/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload, auth: true }),
+  hide: (id) => api(`/api/offers/${encodeURIComponent(id)}`, { method: 'DELETE', auth: true }),
   saveHandoff: (id, payload) =>
     api(`/api/offers/${encodeURIComponent(id)}/handoff`, { method: 'PUT', body: payload, auth: true }),
   confirmHandoff: (id) =>

@@ -102,6 +102,26 @@ test('badges count unread threads and offers that need a response', () => {
   assert.deepEqual(badgeCountsFor(db, 'buyer2'), { messages: 0, offers: 1 });
 });
 
+test('a hidden thread or offer does not count on that person\'s badge', () => {
+  const db = emptyDb();
+  db.listings.push({ id: 'open', sellerId: 'seller', sold: false });
+  db.threads.push({
+    buyerId: 'buyer',
+    sellerId: 'seller',
+    buyerUnread: true,
+    sellerUnread: true,
+    buyerHiddenAt: 1,
+  });
+  db.offers.push(
+    { listingId: 'open', fromId: 'buyer', status: 'countered', buyerHiddenAt: 1 },
+    { listingId: 'open', fromId: 'buyer2', status: 'countered', sellerHiddenAt: 1 },
+    { listingId: 'open', fromId: 'buyer3', status: 'pending', sellerHiddenAt: 1 }
+  );
+  assert.deepEqual(badgeCountsFor(db, 'buyer'), { messages: 0, offers: 0 });
+  assert.deepEqual(badgeCountsFor(db, 'seller'), { messages: 1, offers: 0 });
+  assert.deepEqual(badgeCountsFor(db, 'buyer2'), { messages: 0, offers: 1 });
+});
+
 test('review access is only for the two people on a completed deal', () => {
   const db = emptyDb();
   db.users.push({ id: 'seller', name: '小美' }, { id: 'buyer', name: '阿輝' });

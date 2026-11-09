@@ -28,6 +28,8 @@ import {
   confirmReceipt,
   deleteListing,
   deleteMessage,
+  hideOffer,
+  hideThread,
   fetchHomeListings,
   fetchUser,
   getBadges,
@@ -2867,18 +2869,21 @@ async function renderMessages(token = nextView()) {
     .map((t) => {
       const l = listings.find((x) => x.id === t.listingId) || t.listing;
       return `
-          <button class="thread" type="button" data-go="chat/${t.id}">
-            ${avatarHtml(t.peerAvatar, 'sm')}
-            <div class="body">
-              <div class="top">
-                <span class="name">${escapeHtml(t.peerName)}</span>
-                <span class="thread-side">${t.offer ? statusPill(t.offer) : ''}<span class="meta tiny">${escapeHtml(t.time)}</span></span>
+          <div class="thread">
+            <button class="thread-open" type="button" data-go="chat/${t.id}">
+              ${avatarHtml(t.peerAvatar, 'sm')}
+              <div class="body">
+                <div class="top">
+                  <span class="name">${escapeHtml(t.peerName)}</span>
+                  <span class="thread-side">${t.offer ? statusPill(t.offer) : ''}<span class="meta tiny">${escapeHtml(t.time)}</span></span>
+                </div>
+                <div class="preview">${escapeHtml(t.preview || '尚未傳訊息')}</div>
               </div>
-              <div class="preview">${escapeHtml(t.preview || '尚未傳訊息')}</div>
-            </div>
-            <div class="thumb-sm" style="background:${l?.tone || '#f5f5f5'}">${l ? thumbInner(l) : '📦'}</div>
-            ${t.unread ? '<span class="dot" aria-label="未讀"></span>' : '<span style="width:8px"></span>'}
-          </button>`;
+              <div class="thumb-sm" style="background:${l?.tone || '#f5f5f5'}">${l ? thumbInner(l) : '📦'}</div>
+              ${t.unread ? '<span class="dot" aria-label="未讀"></span>' : '<span style="width:8px"></span>'}
+            </button>
+            <button class="thread-delete" type="button" data-hide-thread="${escapeAttr(t.id)}" data-hide-name="${escapeAttr(t.peerName || '這位街坊')}" aria-label="刪除對話">刪除</button>
+          </div>`;
     })
     .join('');
   const unreadNotices = (getState().notices || []).filter((n) => !n.read).slice(0, 3);
@@ -2908,6 +2913,31 @@ async function renderMessages(token = nextView()) {
     });
   });
   app.querySelector('#retry-load')?.addEventListener('click', () => renderMessages());
+  app.querySelectorAll('[data-hide-thread]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.getAttribute('data-hide-thread');
+      if (!id) return;
+      const name = btn.getAttribute('data-hide-name') || '這位街坊';
+      const ok = await confirmAction({
+        title: '刪除對話',
+        message: `與「${name}」的對話會從你的訊息列表移除，對方的列表不受影響。訊息仍保留。之後再傳訊息，對話會再出現。`,
+        confirmLabel: '刪除對話',
+        cancelLabel: '取消',
+      });
+      if (!ok || !isView(token)) return;
+      btn.disabled = true;
+      try {
+        await hideThread(id);
+        toast('已刪除對話');
+        renderMessages();
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '刪除失敗');
+      }
+    });
+  });
 }
 
 function blobToDataUrl(blob) {
@@ -3790,16 +3820,19 @@ function offerRow(o, { incoming = false } = {}) {
     ? `${o.fromName ? `${o.fromName} · ` : ''}${view.label}${view.status === 'countered' ? ` · ${view.detail}` : ''}`
     : `${view.sub || view.detail}${o.meetup ? ` · ${o.meetup}` : ''}`;
   return `
-          <button class="thread" type="button" data-go="${dest}">
-            <div class="thumb-sm" style="background:${tone}">${l ? thumbInner(l) : '📦'}</div>
-            <div class="body">
-              <div class="top">
-                <span class="name">${escapeHtml(title)}</span>
-                <span class="amount" style="font-size:13px">${money(amount)}</span>
+          <div class="thread">
+            <button class="thread-open" type="button" data-go="${dest}">
+              <div class="thumb-sm" style="background:${tone}">${l ? thumbInner(l) : '📦'}</div>
+              <div class="body">
+                <div class="top">
+                  <span class="name">${escapeHtml(title)}</span>
+                  <span class="amount" style="font-size:13px">${money(amount)}</span>
+                </div>
+                <div class="preview offer-preview">${statusPill(o)}<span>${escapeHtml(preview)}</span></div>
               </div>
-              <div class="preview offer-preview">${statusPill(o)}<span>${escapeHtml(preview)}</span></div>
-            </div>
-          </button>`;
+            </button>
+            <button class="thread-delete" type="button" data-hide-offer="${escapeAttr(o.id)}" data-hide-title="${escapeAttr(title)}" aria-label="刪除議價">刪除</button>
+          </div>`;
 }
 
 async function renderBargainsTab(token = nextView()) {
@@ -3840,6 +3873,31 @@ async function renderBargainsTab(token = nextView()) {
       : `<div class="empty">尚未有議價<br/>在商品詳情點「議價」，或等街坊向你出價</div>`;
   app.innerHTML = shell(`${header}${body}`, { tab: 'bargains' });
   app.querySelector('#retry-load')?.addEventListener('click', () => renderBargainsTab());
+  app.querySelectorAll('[data-hide-offer]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.getAttribute('data-hide-offer');
+      if (!id) return;
+      const title = btn.getAttribute('data-hide-title') || '這筆議價';
+      const ok = await confirmAction({
+        title: '刪除議價',
+        message: `「${title}」會從你的議價列表移除，對方仍看得到，對話亦不受影響。之後再出價或有新回覆，會再出現。`,
+        confirmLabel: '刪除議價',
+        cancelLabel: '取消',
+      });
+      if (!ok || !isView(token)) return;
+      btn.disabled = true;
+      try {
+        await hideOffer(id);
+        toast('已刪除議價');
+        renderBargainsTab();
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '刪除失敗');
+      }
+    });
+  });
 }
 
 function managedGrid(list, labelFor, { edit = false, remove = false } = {}) {
