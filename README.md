@@ -54,7 +54,7 @@ npm run dev
 
 沒有預設示範帳號。註冊後要先打開認證電郵，完成後先可以登入。寄信設定見 `server/README.md`（`SMTP_URL` 或 `RESEND_API_KEY`，以及 `MAIL_FROM`）。
 
-可選環境變數：`VITE_API_URL`（預設 `http://127.0.0.1:8787`）。
+可選環境變數：`VITE_API_URL`。本機開發未設定時是 `http://127.0.0.1:8787`。Render 網頁建置設成空字串，正式站用相對路徑。iOS 包殼見下方「API 位址」。
 
 正式建置：
 
@@ -85,6 +85,24 @@ npm run preview
 iOS 主畫面圖示是 `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`，與 `public/icons/icon-1024.png` 同一張黑底堆疊「澳賣GOT」。啟動畫面在 `Splash.imageset`，底色是純黑。`favicon.svg` 仍是簡化「澳」字。Android 圖示尚未更換。
 
 ## Capacitor 原生包殼（iOS / Android）
+
+### API 位址
+
+網頁正式站與 API 在同一個 Render 服務。`render.yaml` 的建置是 `VITE_API_URL=`，瀏覽器因此打相對路徑 `/api/...`，與 `https://aomai-got.onrender.com` 同源。
+
+iOS TestFlight 的 WebView 位址是 `capacitor://localhost`（協定 `capacitor:`；舊殼也可能是 `ionic:` 或 `file:`），與該網站不同源。正式建置若把 API 留成空字串，`/api/...` 會打到 WebView 自己，離線橫幅顯示 `無法連接伺服器（）`。
+
+建置 iOS 時用其中一種（Android 包殼同一套）：
+
+```bash
+# 把公開 API 寫進這次的 dist
+VITE_API_URL=https://aomai-got.onrender.com npm run build:mobile
+
+# 不設定也可以。src/api.js 看到 capacitor:、ionic:、file: 就打公開站
+npm run build:mobile
+```
+
+空的 `VITE_API_URL`（與 Render 網頁建置相同）仍會依原生協定改打 `https://aomai-got.onrender.com`，網頁則維持相對路徑。非空的 `VITE_API_URL` 一律優先，用來暫時指向別的主機。Capacitor Android 預設有時是 `https://localhost`，那個位址請用第一種、把 `VITE_API_URL` 設成公開站。
 
 本專案已用 Capacitor 包成可在 Xcode / Android Studio 開啟的原生專案。  
 **重要：此 Linux 環境無法簽署 IPA 或上傳 App Store。** 上架必須用你本人的 **Mac + Xcode + Apple Developer 帳號**（付費會員）完成。
