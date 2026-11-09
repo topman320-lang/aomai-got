@@ -139,8 +139,9 @@ Apple 現行規格把舊稱的 6.7 吋與 6.1 吋拆進下面幾個欄位（[Scr
 ## App 圖示
 
 - **1024 × 1024** PNG，無透明、無圓角（系統會自己裁成圓角）。
-- 檔案已在 `public/icons/icon-1024.png`，給 App Store 與 `@capacitor/assets` 當來源。
+- 檔案是黑底白字堆疊「澳賣GOT」：`public/icons/icon-1024.png`，並已放進 `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`。
 - 不要把橫向字標直接拉成正方形。介面內的字標是 `public/brand/logo-light.jpg` 與 `logo-dark.jpg`。
+- 換圖示後必須重新 Archive 上傳，App Store / TestFlight 才會換成新圖示。
 - 可選的各尺寸產生方式見 `STORE_CHECKLIST.md`「圖示與啟動畫面」。
 
 ## Capacitor 同步與 Archive
