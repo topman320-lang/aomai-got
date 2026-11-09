@@ -1199,6 +1199,46 @@ html[data-theme="dark"] .theme-switch::after {
   background: var(--on-ink);
 }
 
+.notify-control {
+  display: flex;
+  align-items: center;
+}
+
+.notify-control .theme-state {
+  color: var(--muted);
+  font-size: 13px;
+  margin-right: 8px;
+}
+
+.notify-switch {
+  width: 44px;
+  height: 26px;
+  border: 1px solid var(--ink);
+  background: var(--soft);
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.notify-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: var(--ink);
+  transition: transform 0.15s ease;
+}
+
+.notify-switch[data-on="true"] {
+  background: var(--ink);
+}
+
+.notify-switch[data-on="true"]::after {
+  transform: translateX(18px);
+  background: var(--on-ink);
+}
+
 @media (min-width: 480px) {
   body {
     padding: 24px 0;

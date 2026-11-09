@@ -234,11 +234,15 @@ export const OffersApi = {
 export const NoticesApi = {
   list: () => api('/api/notifications', { auth: true }),
   read: (ids) => api('/api/notifications/read', { method: 'POST', body: { ids: ids || [] }, auth: true }),
-  pushStatus: () => api('/api/push/status', { auth: true }),
+  pushStatus: (installId) => {
+    const q = installId ? `?installId=${encodeURIComponent(installId)}` : '';
+    return api(`/api/push/status${q}`, { auth: true });
+  },
 };
 
 export const DevicesApi = {
   register: (payload) => api('/api/devices', { method: 'POST', body: payload, auth: true }),
+  prefs: (payload) => api('/api/push/prefs', { method: 'POST', body: payload, auth: true }),
 };
 
 export const StatsApi = {
