@@ -276,8 +276,25 @@ export function backfillDeals(db) {
   return changed;
 }
 
+/** Inbox hide is per person. The shared thread and its messages stay. */
+export function threadHiddenFor(thread, userId) {
+  if (!thread || !userId) return false;
+  if (thread.buyerId === userId) return Boolean(thread.buyerHiddenAt);
+  if (thread.sellerId === userId) return Boolean(thread.sellerHiddenAt);
+  return false;
+}
+
+/** Offer-list hide is per person. It does not cancel the bid or change the peer's list. */
+export function offerHiddenFor(offer, userId, listing) {
+  if (!offer || !userId) return false;
+  if (offer.fromId === userId) return Boolean(offer.buyerHiddenAt);
+  if (listing && listing.sellerId === userId) return Boolean(offer.sellerHiddenAt);
+  return false;
+}
+
 export function badgeCountsFor(db, userId) {
   const messages = (db.threads || []).filter((t) => {
+    if (threadHiddenFor(t, userId)) return false;
     if (t.buyerId === userId) return Boolean(t.buyerUnread);
     if (t.sellerId === userId) return Boolean(t.sellerUnread);
     return false;
@@ -286,6 +303,7 @@ export function badgeCountsFor(db, userId) {
   for (const offer of db.offers || []) {
     const listing = (db.listings || []).find((l) => l.id === offer.listingId);
     if (!listing || listing.sold || listing.removedAt) continue;
+    if (offerHiddenFor(offer, userId, listing)) continue;
     const status = offer.status || 'pending';
     if (offer.fromId === userId && status === 'countered') offers += 1;
     else if (listing.sellerId === userId && offer.fromId !== userId && status === 'pending') offers += 1;

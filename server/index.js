@@ -33,6 +33,8 @@ import {
   applyConfirmReceipt,
   backfillDeals,
   badgeCountsFor,
+  offerHiddenFor,
+  threadHiddenFor,
   isActiveReview,
   presentReview,
   priceHint,
@@ -432,6 +434,9 @@ function pushMessage(db, thread, fromId, text, photos = [], audio = null) {
   };
   if (voice) msg.audio = voice;
   db.messages.push(msg);
+  // A new message puts the row back on both inboxes. Hide is only a personal list flag.
+  delete thread.buyerHiddenAt;
+  delete thread.sellerHiddenAt;
   thread.preview = body.split('\n')[0] || (voice ? '語音訊息' : '相片');
   thread.updatedAt = msg.createdAt;
   if (fromId === thread.buyerId) {
@@ -856,6 +861,8 @@ app.delete('/api/listings/:id', auth, (req, res) => {
       offer.status = 'rejected';
       offer.agreedAmount = null;
       offer.updatedAt = nowTs;
+      delete offer.buyerHiddenAt;
+      delete offer.sellerHiddenAt;
       bumpOffer(db, offer);
       const thread = ensureThread(db, listing, offer.fromId);
       pushMessage(db, thread, req.user.id, '刊登已移除，這筆出價已結束');
@@ -1007,6 +1014,8 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
     offer.counterMessage = '';
     offer.agreedAmount = null;
     offer.updatedAt = nowTs;
+    delete offer.buyerHiddenAt;
+    delete offer.sellerHiddenAt;
     bumpOffer(db, offer);
   } else {
     offer = {
@@ -1055,6 +1064,7 @@ app.get('/api/listings/:id/offers', auth, (req, res) => {
   const isSeller = listing.sellerId === req.user.id;
   const offers = db.offers
     .filter((o) => o.listingId === listing.id && (isSeller || o.fromId === req.user.id))
+    .filter((o) => !offerHiddenFor(o, req.user.id, listing))
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
@@ -1063,7 +1073,7 @@ app.get('/api/listings/:id/offers', auth, (req, res) => {
 app.get('/api/offers/mine', auth, (req, res) => {
   const db = loadDb();
   const offers = db.offers
-    .filter((o) => o.fromId === req.user.id)
+    .filter((o) => o.fromId === req.user.id && !o.buyerHiddenAt)
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
@@ -1073,10 +1083,27 @@ app.get('/api/offers/incoming', auth, (req, res) => {
   const db = loadDb();
   const mine = new Set(db.listings.filter((l) => l.sellerId === req.user.id).map((l) => l.id));
   const offers = db.offers
-    .filter((o) => mine.has(o.listingId))
+    .filter((o) => mine.has(o.listingId) && !o.sellerHiddenAt)
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
+});
+
+/** Remove one offer from the caller's 我的議價. The bid, the thread, and the other person stay. */
+app.delete('/api/offers/:id', auth, (req, res) => {
+  const db = loadDb();
+  const offer = db.offers.find((o) => o.id === req.params.id);
+  if (!offer) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這筆議價' });
+  const listing = db.listings.find((l) => l.id === offer.listingId);
+  const isBuyer = offer.fromId === req.user.id;
+  const isSeller = Boolean(listing && listing.sellerId === req.user.id);
+  if (!isBuyer && !isSeller) return res.status(403).json({ error: 'FORBIDDEN' });
+  const nowTs = Date.now();
+  if (isBuyer) offer.buyerHiddenAt = nowTs;
+  if (isSeller) offer.sellerHiddenAt = nowTs;
+  touch(db, req.user.id);
+  persist();
+  res.json({ ok: true });
 });
 
 app.patch('/api/offers/:id', auth, (req, res) => {
@@ -1110,6 +1137,8 @@ app.patch('/api/offers/:id', auth, (req, res) => {
     offer.status = 'cancelled';
     offer.agreedAmount = null;
     offer.updatedAt = Date.now();
+    delete offer.buyerHiddenAt;
+    delete offer.sellerHiddenAt;
     bumpOffer(db, offer);
     const thread = ensureThread(db, listing, offer.fromId);
     pushMessage(db, thread, req.user.id, `已取消出價 MOP ${offer.amount}`);
@@ -1177,6 +1206,8 @@ app.patch('/api/offers/:id', auth, (req, res) => {
   }
 
   offer.updatedAt = nowTs;
+  delete offer.buyerHiddenAt;
+  delete offer.sellerHiddenAt;
   bumpOffer(db, offer);
   const peerId = req.user.id === offer.fromId ? listing.sellerId : offer.fromId;
   const noticeBody =
@@ -1287,7 +1318,7 @@ app.post('/api/offers/:id/handoff/confirm', auth, (req, res) => {
 app.get('/api/threads', auth, (req, res) => {
   const db = loadDb();
   const mine = db.threads
-    .filter((t) => t.buyerId === req.user.id || t.sellerId === req.user.id)
+    .filter((t) => (t.buyerId === req.user.id || t.sellerId === req.user.id) && !threadHiddenFor(t, req.user.id))
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .map((t) => threadDto(t, req.user.id, db, req));
   res.json({ threads: mine });
@@ -1356,6 +1387,27 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
     message: messageDto(msg, db, base, req.user.name),
     thread: threadDto(thread, req.user.id, db, req),
   });
+});
+
+/** Hide one thread from the caller's 訊息 list. Messages and the other person's inbox stay. */
+app.delete('/api/threads/:id', auth, (req, res) => {
+  const db = loadDb();
+  const thread = db.threads.find((t) => t.id === req.params.id);
+  if (!thread) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到對話' });
+  if (thread.buyerId !== req.user.id && thread.sellerId !== req.user.id) {
+    return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+  const nowTs = Date.now();
+  if (thread.buyerId === req.user.id) {
+    thread.buyerHiddenAt = nowTs;
+    thread.buyerUnread = false;
+  } else {
+    thread.sellerHiddenAt = nowTs;
+    thread.sellerUnread = false;
+  }
+  touch(db, req.user.id);
+  persist();
+  res.json({ ok: true });
 });
 
 /** Sender removes their own message for both people. There is no per-viewer hide flag. */

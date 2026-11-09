@@ -555,6 +555,21 @@ export async function deleteMessage(threadId, messageId) {
   return thread;
 }
 
+/** Drop one conversation from this account's inbox. The other person keeps it. */
+export async function hideThread(threadId) {
+  await ThreadsApi.hide(threadId);
+  state.threads = state.threads.filter((t) => t.id !== threadId);
+  syncBadges();
+}
+
+/** Drop one bid from this account's 我的議價. The bid itself stays for the other person. */
+export async function hideOffer(offerId) {
+  await OffersApi.hide(offerId);
+  state.offers = state.offers.filter((o) => o.id !== offerId);
+  state.incomingOffers = (state.incomingOffers || []).filter((o) => o.id !== offerId);
+  syncBadges();
+}
+
 export async function sendMessage(threadId, text, photos = [], audio = null) {
   const payload = {
     text,
