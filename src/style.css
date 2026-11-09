@@ -47,6 +47,12 @@ body {
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Pinch and double-tap both stick the WKWebView visual viewport
+     above 1 after a gesture on a field. pan-x/pan-y keeps scrolling
+     and disables those zooms. Do not transform or scale html/body. */
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 button,
@@ -55,6 +61,7 @@ textarea,
 select {
   font: inherit;
   color: inherit;
+  touch-action: manipulation;
 }
 
 button {
@@ -77,6 +84,7 @@ img {
   min-height: 100%;
   display: flex;
   justify-content: center;
+  touch-action: pan-x pan-y;
 }
 
 .phone {
@@ -86,6 +94,7 @@ img {
   min-height: 100dvh;
   background: var(--bg);
   position: relative;
+  touch-action: pan-x pan-y;
   display: flex;
   flex-direction: column;
   box-shadow: 0 0 0 1px var(--line);
@@ -335,7 +344,7 @@ img {
   border: 0;
   outline: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .search input::placeholder {
@@ -768,7 +777,7 @@ img {
   background: transparent;
   padding: 10px 0;
   outline: none;
-  font-size: 15px;
+  font-size: 16px;
   border-radius: 0;
   appearance: none;
 }
@@ -1726,6 +1735,7 @@ html[data-theme="dark"] .bubble-row.me .bubble-time {
   background: var(--bg);
   outline: none;
   border-radius: 0;
+  font-size: 16px;
 }
 
 .chat-composer input:focus {
@@ -2446,6 +2456,7 @@ body.offer-open {
   resize: vertical;
   outline: none;
   margin: 0 0 4px;
+  font-size: 16px;
 }
 
 .offer-close {
@@ -2844,6 +2855,7 @@ button.seller-card:active {
   resize: vertical;
   outline: none;
   margin: 4px 0 10px;
+  font-size: 16px;
 }
 
 .review-box .btn {
@@ -3053,4 +3065,14 @@ button.seller-card:active {
 
 .notify-note {
   padding: 0 16px 8px;
+}
+
+/* iOS WKWebView zooms on focus when a text control's computed font-size
+   is under 16px, and that visualViewport scale stays after blur.
+   Floor every text control. File inputs keep the 100px hit target
+   declared above; checkboxes keep their own row target. */
+html body .phone input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='button']):not([type='submit']):not([type='reset']):not([type='hidden']):not([type='range']):not([type='color']):not([type='image']),
+html body .phone textarea,
+html body .phone select {
+  font-size: 16px !important;
 }
