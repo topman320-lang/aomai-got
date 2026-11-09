@@ -42,7 +42,8 @@ import {
   trustSummary,
 } from './trust.js';
 import { buildProposal, confirmProposal, findHandoff, handoffAccess, presentHandoff } from './handoff.js';
-import { addNotice, markNoticesRead, noticesFor, remotePushHook, unreadNotices } from './notices.js';
+import { addNotice, markNoticesRead, noticesFor, unreadNotices } from './notices.js';
+import { apnsCredentials, applyAlertPreference, deliverNoticePush, deviceAlertsOn, isApnsToken } from './push.js';
 import { filterBrowseListings, pageWindow } from './paging.js';
 import { privacyPage, supportPage, verifyResultPage } from './public-pages.js';
 import {
@@ -333,7 +334,15 @@ function notifyUser(db, { userId, kind, title, body, href, refId }) {
     refId,
     createdAt: Date.now(),
   });
-  if (row) remotePushHook(db, userId);
+  if (row) {
+    deliverNoticePush(db, row)
+      .then((result) => {
+        if (result?.changed) persist();
+      })
+      .catch((err) => {
+        console.warn('remote push failed', err?.message || err);
+      });
+  }
   return row;
 }
 
@@ -1453,12 +1462,36 @@ app.post('/api/notifications/read', auth, (req, res) => {
 
 app.get('/api/push/status', auth, (req, res) => {
   const db = loadDb();
-  const devices = (db.devices || []).filter((d) => d.userId === req.user.id).length;
+  const installId = String(req.query.installId || '').trim().slice(0, 80);
+  const creds = apnsCredentials();
+  const mine = (db.devices || []).filter((d) => d.userId === req.user.id);
+  const row = installId ? mine.find((d) => d.installId === installId) : null;
+  const enabled = installId ? deviceAlertsOn(row) : false;
   res.json({
-    remotePush: false,
-    devices,
-    reason: '需要 Apple APNs 與 Google FCM 憑證。未設定時只用應用內紅點同本機通知。',
+    enabled,
+    remotePush: creds.configured,
+    apns: creds.configured,
+    devices: mine.filter((d) => d.platform === 'ios' && deviceAlertsOn(d) && isApnsToken(d.token)).length,
+    reason: creds.configured ? '' : '伺服器未設定 Apple 推播，App 完全關閉時暫時收唔到。',
   });
+});
+
+app.post('/api/push/prefs', auth, (req, res) => {
+  if (typeof req.body?.enabled !== 'boolean') {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請設定開啟或關閉' });
+  }
+  const db = loadDb();
+  const result = applyAlertPreference(db, req.user.id, {
+    enabled: req.body.enabled,
+    installId: req.body?.installId,
+    token: req.body?.token,
+    platform: req.body?.platform,
+  });
+  if (result.error) return res.status(400).json({ error: result.error, message: result.message });
+  touch(db, req.user.id);
+  persist();
+  const creds = apnsCredentials();
+  res.json({ ok: true, enabled: result.device.alerts === true, remotePush: creds.configured });
 });
 
 app.post('/api/devices', auth, (req, res) => {
@@ -1471,25 +1504,22 @@ app.post('/api/devices', auth, (req, res) => {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '平台不正確' });
   }
   const db = loadDb();
-  if (!Array.isArray(db.devices)) db.devices = [];
-  const nowTs = Date.now();
-  const existing = db.devices.find((d) => d.userId === req.user.id && d.token === token);
-  if (existing) {
-    existing.platform = platform;
-    existing.updatedAt = nowTs;
-  } else {
-    db.devices.push({
-      id: id('d-'),
-      userId: req.user.id,
-      token,
-      platform,
-      createdAt: nowTs,
-      updatedAt: nowTs,
-    });
-  }
+  const result = applyAlertPreference(db, req.user.id, {
+    token,
+    platform,
+    installId: req.body?.installId,
+    alerts: typeof req.body?.alerts === 'boolean' ? req.body.alerts : undefined,
+  });
+  if (result.error) return res.status(400).json({ error: result.error, message: result.message });
   touch(db, req.user.id);
   persist();
-  res.json({ ok: true, stored: true, remotePush: false });
+  const creds = apnsCredentials();
+  res.json({
+    ok: true,
+    stored: true,
+    enabled: result.device.alerts === true,
+    remotePush: creds.configured,
+  });
 });
 
 app.get('/api/price-hint', (req, res) => {

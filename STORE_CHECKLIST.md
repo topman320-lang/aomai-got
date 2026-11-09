@@ -16,8 +16,8 @@ Bundle ID／Application ID：**`com.aomai.got`**
 - 鄰里二手議價。出價被接受後，買賣雙方可以提議並確認見面時間與地點（澳門地標或自訂）。平台不收貨款、不託管、不鑑定。
 - 議價、訊息、見面卡有同一句防騙提示：建議面交、唔好預付、平台唔託管唔鑑定。
 - 新刊登至少一張相片，建議多角度。相簿與拍照都還在。iOS 拍照依賴 `Info.plist` 的 `NSCameraUsageDescription`；沒有這句時，按「拍照」會被系統直接關掉。相簿選擇不要加 `capture`。
-- 應用內紅點（訊息、待回覆議價、新提醒）。原生殼可以要本機通知權限，並把裝置權杖存到 `POST /api/devices`。
-- **遠端推播（App 關掉仍收到）尚未發送。** 沒有 APNs／FCM 憑證，伺服器不會假裝送出。
+- 應用內紅點（訊息、待回覆議價、新提醒）。我的 → 訊息提醒是開關，設定按使用者同這部裝置保存。
+- **遠端推播：** iOS 在 Render 已設定 APNs 憑證時，會向已開啟提醒的裝置發送。未設定憑證就不會送出。Android FCM 仍未接入。下方審核備註未改。
 
 ## 審核用短句
 
@@ -101,17 +101,23 @@ npx @capacitor/assets generate --iconBackgroundColor '#000000' --splashBackgroun
 程式已接上：
 
 - `@capacitor/push-notifications`、`@capacitor/local-notifications`
-- 我的 → 訊息提醒：要求權限。網頁用 Notifications API；原生殼才載入外掛，網頁版不會因外掛失敗而打不開
-- 新訊息、出價、見面提議會寫入 `notices`，客戶端大約每 25 秒看一次，前景用提示，背景才發本機通知
-- `POST /api/devices` 可保存 `{ token, platform: ios|android|web }`
-- `GET /api/push/status` 固定 `remotePush: false`
+- 我的 → 訊息提醒是開關。開啟先問系統權限；關閉就唔發本機橫額，亦唔會向呢部裝置推播。未讀紅點跟未讀訊息、待回覆出價、未讀提醒，唔跟呢個開關
+- 新訊息、出價、見面提議會寫入 `notices`。客戶端大約每 25 秒看一次。前景用提示。iOS 在憑證齊備時由 APNs 送到已關閉的 App；否則背景先用本機通知
+- `POST /api/push/prefs` 保存 `{ enabled, installId, token?, platform? }`。`POST /api/devices` 仍可保存權杖
+- `GET /api/push/status?installId=` 的 `remotePush` 在 `APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_KEY` 都有值時先為 true
+- Xcode：Debug 用 `App.Debug.entitlements`（`aps-environment` = development），Release／TestFlight／App Store 用 `App.Release.entitlements`（production）
 
-要在商店做真正的遠端推播，還需要你自己準備：
+要真的送到關掉的 iPhone，你要自己準備（呢度冇憑證）：
 
-1. Apple Developer 帳號。Xcode → Signing & Capabilities → Push Notifications。Bundle ID `com.aomai.got`。
-2. APNs Auth Key（`.p8`）、Key ID、Team ID。環境變數可命名為 `APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_KEY`。
-3. Firebase 專案、Android `google-services.json`，以及伺服器用的 FCM 憑證（`FCM_SERVER_KEY` 或 `FCM_SERVICE_ACCOUNT`）。
-4. 在 `server/notices.js` 的 `remotePushHook` 接上實際發送。現在就算設了環境變數也不會送出，避免半套實作誤報成功。
-5. `npx cap sync` 之後，Android 通知小圖使用 `ic_stat_aomai`。
+1. Apple Developer → Identifiers → App ID `com.aomai.got` → 開啟 Push Notifications。Provisioning profile 要帶呢個 capability，否則實機會話沒有 `aps-environment`。
+2. Keys → 新增一條 **Apple Push Notifications service (APNs)** 的 Auth Key。下載 `.p8`（只得一次）。記住 Key ID。右上角或 Membership 頁的 Team ID 一併記下。同一條 key 可以打 sandbox 同 production。
+3. App Store Connect 唔使另貼 key。用上面個 App ID 出的 TestFlight／App Store 包會用 production 權杖。Xcode Debug 安裝用 sandbox 權杖。伺服器收到 `BadDeviceToken` 會改試另一個 host 一次。
+4. Render 服務 `aomai-got` 設定環境變數（唔好寫入 git）：
+   - `APNS_KEY_ID`：Key ID
+   - `APNS_TEAM_ID`：Team ID
+   - `APNS_KEY`：`.p8` 全文（`-----BEGIN PRIVATE KEY-----` 到 `END`）。一行的話用 `\n` 表示換行
+   - `APNS_BUNDLE_ID`：`com.aomai.got`（預設已經係呢個）
+   - `APNS_ENV`：`production`（正式站先試 production；要先試 sandbox 就設 `sandbox`）
+5. 重新 Archive 先會帶上 Push entitlement。`npx cap sync` 之後，Android 通知小圖仍用 `ic_stat_aomai`。Android 的 FCM 未接，關掉 App 之後收唔到遠端推播。
 
-未完成上述步驟時，請在審核說明寫：通知是應用內紅點與本機通知，不是背景遠端推播。
+未完成上述步驟時，請在審核說明寫：通知是應用內紅點與本機通知，不是背景遠端推播。本檔的審核備註同 `docs/APP_STORE.md` 未因呢次改動而改寫。

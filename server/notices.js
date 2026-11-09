@@ -1,6 +1,5 @@
 /** In-app notices for messages, offers, and handoff.
- * Remote APNs/FCM is intentionally not sent: credentials are not part of this deploy.
- * Device tokens can still be stored for a later sender. See STORE_CHECKLIST.md. */
+ * Remote delivery is server/push.js (APNs). This module only stores the notice. */
 
 const MAX_PER_USER = 40;
 
@@ -69,14 +68,3 @@ export function markNoticesRead(db, userId, ids) {
   return changed;
 }
 
-/** Hook for a future APNs/FCM sender. This build never delivers remote push. */
-export function remotePushHook(db, userId) {
-  const devices = (db?.devices || []).filter((d) => d.userId === userId);
-  const hasApns = Boolean(process.env.APNS_KEY_ID && process.env.APNS_TEAM_ID && process.env.APNS_KEY);
-  const hasFcm = Boolean(process.env.FCM_SERVER_KEY || process.env.FCM_SERVICE_ACCOUNT);
-  return {
-    delivered: false,
-    devices: devices.length,
-    reason: hasApns || hasFcm ? 'sender_not_wired' : 'credentials_missing',
-  };
-}

@@ -4,7 +4,7 @@
   "webDir": "dist",
   "plugins": {
     "PushNotifications": {
-      "presentationOptions": ["badge", "sound", "alert"]
+      "presentationOptions": ["badge", "sound"]
     },
     "LocalNotifications": {
       "smallIcon": "ic_stat_aomai",

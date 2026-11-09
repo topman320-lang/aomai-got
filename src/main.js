@@ -11,7 +11,14 @@ import {
   resampleMono,
   voiceErrorMessage,
 } from './voice.js';
-import { enableNotifications, notifyStatusText, watchNotices } from './notify.js';
+import {
+  loadMessageAlertPref,
+  messageAlertNote,
+  messageAlertsEnabled,
+  resumeMessageAlerts,
+  setMessageAlerts,
+  watchNotices,
+} from './notify.js';
 import {
   CATEGORIES,
   CONDITION_OPTIONS,
@@ -4196,6 +4203,15 @@ async function renderMe(token = nextView()) {
     }
   }
   if (!isView(token)) return;
+  let alertPref = { enabled: false, remotePush: false, note: messageAlertNote({ enabled: false }) };
+  if (logged) {
+    try {
+      alertPref = await loadMessageAlertPref();
+    } catch {
+      /* keep the switch off until the server answers */
+    }
+  }
+  if (!isView(token)) return;
   const active = s.active ?? Math.max(0, (s.posts || 0) - (s.deals || 0));
   const soldCount = s.sold ?? s.deals ?? 0;
   const saved = s.saved ?? getState().wants.length;
@@ -4237,11 +4253,14 @@ async function renderMe(token = nextView()) {
       ${menuGo('sold', '已售', soldCount)}
       ${menuGo('saved', '收藏', saved)}
       ${menuGo('bargains', '我的議價')}
-      <button class="menu-row" type="button" id="notify-toggle">
+      <button class="menu-row" type="button" id="notify-toggle" role="switch" aria-checked="${alertPref.enabled ? 'true' : 'false'}" aria-label="訊息提醒">
         <span>訊息提醒</span>
-        <span class="theme-state" id="notify-state">${escapeHtml(notifyStatusText())}</span>
+        <span class="notify-control">
+          <span class="theme-state" id="notify-state">${alertPref.enabled ? '開啟' : '關閉'}</span>
+          <span class="notify-switch" id="notify-switch" data-on="${alertPref.enabled ? 'true' : 'false'}" aria-hidden="true"></span>
+        </span>
       </button>
-      <p class="photo-hint notify-note">開啟後，新訊息同出價會在應用內提醒。關掉 App 之後的商店推播需要 APNs／FCM，目前未接入，所以這裡先用紅點同本機通知。</p>`
+      <p class="photo-hint notify-note" id="notify-note">${escapeHtml(alertPref.note || messageAlertNote(alertPref))}</p>`
           : `
       <button class="menu-row" type="button" data-go="login" id="me-login"><span>登入</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" data-go="register" id="me-register"><span>註冊</span><span class="arrow">→</span></button>`
@@ -4269,18 +4288,35 @@ async function renderMe(token = nextView()) {
   app.querySelector('#me-register')?.addEventListener('click', () => {
     sessionStorage.setItem('aomai-after-login', 'me');
   });
-  app.querySelector('#notify-toggle')?.addEventListener('click', async () => {
+  let notifyBusy = false;
+  const paintNotify = (enabled, note) => {
+    const btn = app.querySelector('#notify-toggle');
     const stateEl = app.querySelector('#notify-state');
-    if (stateEl) stateEl.textContent = '開啟中…';
+    const switchEl = app.querySelector('#notify-switch');
+    const noteEl = app.querySelector('#notify-note');
+    if (btn) btn.setAttribute('aria-checked', enabled ? 'true' : 'false');
+    if (stateEl) stateEl.textContent = enabled ? '開啟' : '關閉';
+    if (switchEl) switchEl.dataset.on = enabled ? 'true' : 'false';
+    if (noteEl) noteEl.textContent = note;
+  };
+  app.querySelector('#notify-toggle')?.addEventListener('click', async () => {
+    if (notifyBusy) return;
+    const btn = app.querySelector('#notify-toggle');
+    const was = btn?.getAttribute('aria-checked') === 'true';
+    notifyBusy = true;
+    paintNotify(!was, '更新中…');
     try {
-      const result = await enableNotifications();
-      if (stateEl) stateEl.textContent = result.label;
-      if (result.permission === 'denied') toast('瀏覽器封鎖了通知，仍會顯示紅點');
-      else if (result.local || result.permission === 'granted') toast('已開啟提醒。商店推播尚未接入');
-      else toast('會用應用內紅點提醒');
+      const result = await setMessageAlerts(!was);
+      alertPref = { ...alertPref, ...result };
+      paintNotify(result.enabled, result.note);
+      if (result.permission === 'denied') toast('系統未允許通知，提醒維持關閉');
+      else if (result.enabled) toast(result.remotePush ? '已開啟訊息提醒' : '已開啟本機提醒');
+      else toast('已關閉訊息提醒');
     } catch (err) {
-      if (stateEl) stateEl.textContent = notifyStatusText();
-      errToast(err, '未能開啟提醒');
+      paintNotify(was, messageAlertNote({ enabled: was, remotePush: alertPref.remotePush }));
+      errToast(err, '未能更新訊息提醒');
+    } finally {
+      notifyBusy = false;
     }
   });
   app.querySelector('#theme-toggle')?.addEventListener('click', () => {
@@ -4588,6 +4624,11 @@ app.innerHTML = shell(
 
 bootstrap()
   .then(async (r) => {
+    try {
+      await resumeMessageAlerts();
+    } catch (err) {
+      console.warn('message alerts', err);
+    }
     watchNotices({
       onNotice: (notice) => {
         if (!isLoggedIn()) return;
@@ -4601,7 +4642,7 @@ bootstrap()
           renderChat(parts[1]);
           return;
         }
-        toast(notice.body || notice.title || '有新訊息');
+        if (messageAlertsEnabled()) toast(notice.body || notice.title || '有新訊息');
         paintTabBadges();
         refreshBadges()
           .then(() => paintTabBadges())

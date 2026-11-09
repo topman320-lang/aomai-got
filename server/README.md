@@ -45,6 +45,11 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 | `RESEND_API_KEY` | unset. If this and `SMTP_URL` are both set, Resend is used. |
 | `MAIL_FROM` | `澳賣GOT <noreply@aomai-got.onrender.com>`. Set a sender the provider has already verified. |
 | `NODE_ENV` | Render sets `production`. Register then returns 503 unless `SMTP_URL` or `RESEND_API_KEY` is set, so a new account is not created without a verification email. |
+| `APNS_KEY_ID` | unset. Apple APNs Auth Key ID. All three of this, `APNS_TEAM_ID`, and `APNS_KEY` must be set before any remote push is sent. |
+| `APNS_TEAM_ID` | unset. Apple Team ID. |
+| `APNS_KEY` | unset. APNs `.p8` PEM. A single line may use `\n` for line breaks. Do not commit the value. |
+| `APNS_BUNDLE_ID` | `com.aomai.got`. Must match the iOS bundle id (`apns-topic`). |
+| `APNS_ENV` | `production`. `sandbox` or `development` tries the sandbox host first. A `BadDeviceToken` retries the other host once. |
 
 ## Extra routes
 
@@ -68,8 +73,9 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 | POST | `/api/offers/:id/handoff/confirm` | yes | Confirms the current proposal. Both sides must confirm |
 | GET | `/api/notifications` | yes | In-app notices for messages, offers, handoff |
 | POST | `/api/notifications/read` | yes | `{ ids?: string[] }` — omit ids to mark all read |
-| POST | `/api/devices` | yes | Store a push token. Remote APNs/FCM is not sent |
-| GET | `/api/push/status` | yes | `{ remotePush: false, ... }` |
+| POST | `/api/devices` | yes | Store a push token. Optional `installId` and `alerts`. iOS tokens are used for APNs when credentials exist and alerts are on |
+| POST | `/api/push/prefs` | yes | `{ enabled, installId, token?, platform? }`. Per user and install. `enabled: false` stops local and remote alerts for that device only |
+| GET | `/api/push/status` | yes | `?installId=`. `{ enabled, remotePush, apns, devices, reason }`. `remotePush` is true only when APNs credentials are set |
 | GET | `/api/price-hint?category&condition` | no | Peer range or a rough guide. Not an appraisal |
 | GET | `/api/users/:id` | optional | Public profile, listings, short reviews. No email |
 | PATCH | `/api/listings/:id/sold` | yes | Seller only. Marks sold and links the accepted buyer |
