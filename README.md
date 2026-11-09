@@ -82,7 +82,7 @@ npm run preview
 | `logo-light.jpg` | 白底黑字 — 首頁 topbar、我的頁品牌條 |
 | `logo-dark.jpg` | 介面顏色 — 關於彈窗黑底條；可作 App icon／啟動畫面素材 |
 
-Capacitor 上架時，請用這兩款裁成各尺寸 App Icon（iOS `AppIcon.appiconset`、Android `mipmap-*`）。目前 `favicon.svg` 仍是簡化「澳」字標；真機 icon 建議換成完整字標裁切。
+iOS 主畫面圖示是 `ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`，與 `public/icons/icon-1024.png` 同一張黑底堆疊「澳賣GOT」。啟動畫面在 `Splash.imageset`，底色是純黑。`favicon.svg` 仍是簡化「澳」字。Android 圖示尚未更換。
 
 ## Capacitor 原生包殼（iOS / Android）
 

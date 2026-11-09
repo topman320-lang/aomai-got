@@ -62,14 +62,14 @@ App Store 營養標籤可這樣對：
 
 ## 圖示與啟動畫面
 
-已放在 repo，由 `scripts/make-store-icons.py` 從字標重製（需要本機 Pillow，不是執行期依賴）：
+主畫面與 PWA 圖示是使用者提供的黑底白字堆疊「澳賣GOT」（`public/icons/icon-1024.png`，1024×1024）。`scripts/make-store-icons.py` 只把這張圖縮小成其他尺寸，不會重畫字標（需要本機 Pillow，不是執行期依賴）。iOS 啟動畫面是同一標誌的黑底方圖。換過圖示後要重新 Archive 並上傳，App Store / TestFlight 才會顯示新圖示。
 
 | 檔案 | 用途 |
 |------|------|
 | `public/icons/icon-1024.png` | iOS App Store 1024，以及 `@capacitor/assets` 的來源 |
 | `public/icons/icon-180.png` | apple-touch-icon |
 | `public/icons/icon-192.png`、`icon-512.png` | PWA／高解析 |
-| `public/icons/icon-maskable-512.png` | 有較大留白的 maskable |
+| `public/icons/icon-maskable-512.png` | 與 `icon-512.png` 同一張字標，給 maskable 用 |
 | `public/icons/ic-stat-aomai.png` | Android 狀態列用白字透明底，複製到 `android/app/src/main/res/...` 並命名成 `ic_stat_aomai` |
 | `public/splash/splash-light.png` | 淺色啟動畫面（1080×1920，置中字標） |
 | `public/splash/splash-dark.png` | 深色啟動畫面 |
@@ -81,7 +81,7 @@ App Store 營養標籤可這樣對：
 
 ```bash
 npm run build:mobile
-npx @capacitor/assets generate --iconBackgroundColor '#111111' --splashBackgroundColor '#ffffff'
+npx @capacitor/assets generate --iconBackgroundColor '#000000' --splashBackgroundColor '#000000'
 ```
 
 此 Linux 環境不能簽名，也不能上傳 App Store Connect 或 Play Console。
