@@ -17,6 +17,12 @@ import {
   isEmailVerified,
   issueEmailVerify,
   mailTransportKind,
+  RESET_CTA_EN,
+  RESET_CTA_ZH,
+  RESET_EN,
+  RESET_SUBJECT,
+  RESET_ZH,
+  passwordResetMail,
   sendMail,
   verificationMail,
 } from './mail.js';
@@ -58,6 +64,25 @@ test('verification email is two stacked sections with the same link', () => {
   const englishStart = mail.html.indexOf(APPROVED_EN.split('\n')[0]);
   assert.ok(chineseEnd < mail.html.indexOf(`href="${url}"`));
   assert.ok(mail.html.indexOf(`href="${url}"`) < englishStart);
+});
+
+test('password reset email is bilingual with one clear link in each language', () => {
+  const url = 'https://aomai-got.onrender.com/#/reset?token=abc.def';
+  const mail = passwordResetMail({ url });
+  assert.equal(mail.subject, RESET_SUBJECT);
+  assert.match(mail.subject, /Reset your 澳賣GOT password/);
+  assert.equal(mail.text, `${RESET_ZH}\n${RESET_CTA_ZH}：${url}\n\n${RESET_EN}\n${RESET_CTA_EN}: ${url}`);
+  assert.ok(mail.text.includes('30'));
+  assert.ok(mail.text.includes('ignore this email'));
+  const hrefs = [...mail.html.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(hrefs, [url, url, url, url]);
+  assert.ok(mail.html.includes(`>${RESET_CTA_ZH}<`));
+  assert.ok(mail.html.includes(`>${RESET_CTA_EN}<`));
+  assert.ok(mail.html.includes('lang="zh-Hant"'));
+  assert.ok(mail.html.includes('lang="en"'));
+  const chineseAt = mail.html.indexOf(RESET_ZH.split('\n')[0]);
+  const englishAt = mail.html.indexOf(RESET_EN.split('\n')[0]);
+  assert.ok(chineseAt > -1 && englishAt > chineseAt);
 });
 
 test('missing emailVerified stays verified, and tokens are one-time', () => {
@@ -381,4 +406,166 @@ test('production register fails when mail is not configured', async (t) => {
   const resend = await postJson(api.base, '/api/auth/resend-verification', { email: 'prod-user@example.com' });
   assert.equal(resend.res.status, 503);
   assert.equal(resend.data.error, 'MAIL_NOT_CONFIGURED');
+
+  const forgot = await postJson(api.base, '/api/auth/forgot', { email: 'prod-user@example.com' });
+  assert.equal(forgot.res.status, 200, forgot.text);
+  assert.equal(forgot.data.ok, true);
+  assert.equal(forgot.data.message, '若電郵已註冊，我們會寄出重設指引');
+  assert.equal(forgot.data.token, undefined);
+  assert.equal(forgot.data.resetToken, undefined);
+});
+
+function readOutbox(file) {
+  if (!fs.existsSync(file)) return [];
+  const raw = fs.readFileSync(file, 'utf8').trim();
+  if (!raw) return [];
+  return raw.split('\n').map((line) => JSON.parse(line));
+}
+
+function resetTokenFromMail(message) {
+  const match = String(message?.text || '').match(/#\/reset\?token=([^\s]+)/);
+  assert.ok(match, message?.text);
+  return decodeURIComponent(match[1]);
+}
+
+test('forgot with mail configured sends a reset link, and reset still works', async (t) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aomai-reset-mail-'));
+  const dataDir = path.join(tmp, 'data');
+  const outbox = path.join(tmp, 'mail.jsonl');
+  fs.mkdirSync(dataDir, { recursive: true });
+  const passwordHash = bcrypt.hashSync('secret1', 4);
+  fs.writeFileSync(
+    path.join(dataDir, 'aomai.json'),
+    JSON.stringify({
+      users: [
+        {
+          id: 'u-reset',
+          name: '重設',
+          email: 'reset-user@example.com',
+          passwordHash,
+          avatar: '重',
+          bio: '',
+          createdAt: 1,
+        },
+      ],
+    })
+  );
+
+  const port = 46000 + Math.floor(Math.random() * 8000);
+  const api = spawnApi(t, {
+    port,
+    dataDir,
+    env: testServerEnv({
+      JWT_SECRET: 'reset-mail-test',
+      MAIL_OUTBOX: outbox,
+      RESEND_API_KEY: 're_test_mock',
+      MAIL_FROM: '澳賣GOT <noreply@aomai-got.onrender.com>',
+    }),
+  });
+  await waitForHealth(api.base, api.logs);
+
+  const forgot = await postJson(api.base, '/api/auth/forgot', { email: 'Reset-User@example.com' });
+  assert.equal(forgot.res.status, 200, forgot.text);
+  assert.equal(forgot.data.ok, true);
+  assert.equal(forgot.data.message, '若電郵已註冊，我們會寄出重設指引');
+  assert.equal(forgot.data.token, undefined);
+  assert.equal(forgot.data.resetToken, undefined);
+  assert.equal(JSON.stringify(forgot.data).includes('eyJ'), false);
+
+  const mailed = readOutbox(outbox).find((message) => message.to === 'reset-user@example.com');
+  assert.ok(mailed);
+  assert.equal(mailed.subject, RESET_SUBJECT);
+  const token = resetTokenFromMail(mailed);
+  const link = `http://127.0.0.1:${port}/#/reset?token=${encodeURIComponent(token)}`;
+  assert.equal(mailed.text, `${RESET_ZH}\n${RESET_CTA_ZH}：${link}\n\n${RESET_EN}\n${RESET_CTA_EN}: ${link}`);
+  assert.ok(mailed.html.includes(`href="${link}"`));
+  assert.ok(mailed.html.includes(RESET_CTA_ZH));
+
+  const unknown = await postJson(api.base, '/api/auth/forgot', { email: 'nobody@example.com' });
+  assert.equal(unknown.res.status, 200, unknown.text);
+  assert.deepEqual(unknown.data, forgot.data);
+  assert.equal(
+    readOutbox(outbox).some((message) => message.to === 'nobody@example.com'),
+    false
+  );
+
+  const invalid = await postJson(api.base, '/api/auth/forgot', { email: 'not-an-email' });
+  assert.equal(invalid.res.status, 400);
+
+  const reset = await postJson(api.base, '/api/auth/reset', { token, password: 'newpass1' });
+  assert.equal(reset.res.status, 200, reset.text);
+  assert.equal(reset.data.message, '密碼已更新，請重新登入');
+
+  const oldLogin = await postJson(api.base, '/api/auth/login', {
+    email: 'reset-user@example.com',
+    password: 'secret1',
+  });
+  assert.equal(oldLogin.res.status, 401);
+
+  const session = await postJson(api.base, '/api/auth/login', {
+    email: 'reset-user@example.com',
+    password: 'newpass1',
+  });
+  assert.equal(session.res.status, 200, session.text);
+  assert.equal(typeof session.data.token, 'string');
+
+  const reused = await postJson(api.base, '/api/auth/reset', { token, password: 'another1' });
+  assert.equal(reused.res.status, 400);
+  assert.equal(reused.data.error, 'BAD_TOKEN');
+
+  for (let i = 0; i < RESEND_EMAIL_LIMIT; i += 1) {
+    const ok = await postJson(api.base, '/api/auth/forgot', { email: 'flood-reset@example.com' });
+    assert.equal(ok.res.status, 200, ok.text);
+    assert.deepEqual(ok.data, forgot.data);
+  }
+  const limited = await postJson(api.base, '/api/auth/forgot', { email: 'flood-reset@example.com' });
+  assert.equal(limited.res.status, 429);
+  assert.equal(limited.data.error, 'RATE_LIMITED');
+});
+
+test('forgot still answers ok when production mail is not configured', async (t) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aomai-reset-nomail-'));
+  const dataDir = path.join(tmp, 'data');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dataDir, 'aomai.json'),
+    JSON.stringify({
+      users: [
+        {
+          id: 'u-nomail',
+          name: '無信',
+          email: 'nomail@example.com',
+          passwordHash: bcrypt.hashSync('secret1', 4),
+          avatar: '無',
+          bio: '',
+          createdAt: 1,
+        },
+      ],
+    })
+  );
+  const port = 47000 + Math.floor(Math.random() * 8000);
+  const api = spawnApi(t, {
+    port,
+    dataDir,
+    env: testServerEnv({
+      NODE_ENV: 'production',
+      JWT_SECRET: 'reset-nomail-test',
+    }),
+  });
+  await waitForHealth(api.base, api.logs);
+
+  const forgot = await postJson(api.base, '/api/auth/forgot', { email: 'nomail@example.com' });
+  assert.equal(forgot.res.status, 200, forgot.text);
+  assert.deepEqual(forgot.data, { ok: true, message: '若電郵已註冊，我們會寄出重設指引' });
+  assert.match(api.logs(), /\[mail\] forgot send failed/);
+
+  const unknown = await postJson(api.base, '/api/auth/forgot', { email: 'missing@example.com' });
+  assert.equal(unknown.res.status, 200, unknown.text);
+  assert.deepEqual(unknown.data, forgot.data);
+
+  const login = await postJson(api.base, '/api/auth/login', {
+    email: 'nomail@example.com',
+    password: 'secret1',
+  });
+  assert.equal(login.res.status, 200, login.text);
 });

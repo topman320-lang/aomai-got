@@ -717,7 +717,7 @@ function renderForgot() {
         <label for="email">電郵</label>
         <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" />
       </div>
-      <p class="meta" id="forgot-note" style="padding:0 4px">輸入註冊電郵。此示範不會寄出電郵，送出後只確認已收到申請。</p>
+      <p class="meta" id="forgot-note" style="padding:0 4px">輸入註冊電郵。若帳戶存在，我們會寄出重設連結，30 分鐘內有效。搵唔到就睇下垃圾郵件。</p>
       <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
         <button class="btn ghost" type="button" data-go="login">返回登入</button>
         <button class="btn primary" type="submit">送出</button>

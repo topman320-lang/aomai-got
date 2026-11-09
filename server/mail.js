@@ -16,6 +16,19 @@ export const VERIFY_EN = `Welcome to 澳賣GOT (MoGOT)!
 Thanks for signing up — Macau neighborhood second-hand, where prices are negotiable.
 Please tap the verification link below to activate your account, then you can list and make offers.`;
 
+export const RESET_SUBJECT = '重設你嘅澳賣GOT密碼 / Reset your 澳賣GOT password';
+
+export const RESET_ZH = `你申請重設澳賣GOT（MoGOT）嘅密碼。
+請撳下面個掣設定新密碼。連結 30 分鐘內有效，而且只用得一次。
+如果你冇申請，可以不理呢封信，你嘅密碼唔會改變。`;
+
+export const RESET_EN = `You asked to reset the password for your 澳賣GOT (MoGOT) account.
+Tap the button below to choose a new password. The link expires in 30 minutes and can only be used once.
+If you did not request this, you can ignore this email and your password will stay the same.`;
+
+export const RESET_CTA_ZH = '重設密碼';
+export const RESET_CTA_EN = 'Reset password';
+
 export const DEFAULT_MAIL_FROM = '澳賣GOT <noreply@aomai-got.onrender.com>';
 
 export const RESEND_EMAIL_LIMIT = 5;
@@ -68,6 +81,20 @@ function verifyLinkHtml(url) {
   return `<p style="margin:16px 0 24px"><a href="${safe}" style="display:inline-block;background:#111111;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:4px;font-weight:600;word-break:break-all">${safe}</a></p>`;
 }
 
+function paragraphHtml(text) {
+  return String(text)
+    .split('\n')
+    .map((line) => `<p style="margin:0 0 8px">${escapeHtml(line)}</p>`)
+    .join('\n');
+}
+
+function actionLinkHtml(url, label) {
+  const safeUrl = escapeHtml(url);
+  const safeLabel = escapeHtml(label);
+  return `<p style="margin:16px 0 8px"><a href="${safeUrl}" style="display:inline-block;background:#111111;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:4px;font-weight:600;font-size:16px;line-height:20px">${safeLabel}</a></p>
+<p style="margin:0 0 24px;font-size:13px;line-height:1.5;word-break:break-all"><a href="${safeUrl}">${safeUrl}</a></p>`;
+}
+
 export function verificationMail({ url }) {
   const link = String(url || '').trim();
   const text = `${VERIFY_ZH}\n${link}\n\n${VERIFY_EN}\n${link}`;
@@ -82,6 +109,35 @@ ${verifyLinkHtml(link)}
 </body>
 </html>`;
   return { subject: VERIFY_SUBJECT, text, html };
+}
+
+/** Password-reset mail: Chinese, then English, each with the same one-time link. */
+export function passwordResetMail({ url }) {
+  const link = String(url || '').trim();
+  const text = `${RESET_ZH}\n${RESET_CTA_ZH}：${link}\n\n${RESET_EN}\n${RESET_CTA_EN}: ${link}`;
+  const html = `<!DOCTYPE html>
+<html lang="zh-Hant" dir="ltr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>${escapeHtml(RESET_SUBJECT)}</title>
+</head>
+<body style="margin:0;padding:24px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'PingFang TC','Noto Sans TC',sans-serif;color:#111111;line-height:1.7;font-size:16px">
+<div lang="zh-Hant" dir="ltr" style="display:none;max-height:0;overflow:hidden;mso-hide:all">呢條連結 30 分鐘內有效。</div>
+<div lang="en" dir="ltr" style="display:none;max-height:0;overflow:hidden;mso-hide:all">This link expires in 30 minutes.</div>
+<div lang="zh-Hant" dir="ltr">
+<h1 style="font-size:22px;line-height:1.3;margin:0 0 12px">重設密碼</h1>
+${paragraphHtml(RESET_ZH)}
+${actionLinkHtml(link, RESET_CTA_ZH)}
+</div>
+<div lang="en" dir="ltr">
+<h1 style="font-size:22px;line-height:1.3;margin:0 0 12px">Reset your password</h1>
+${paragraphHtml(RESET_EN)}
+${actionLinkHtml(link, RESET_CTA_EN)}
+</div>
+</body>
+</html>`;
+  return { subject: RESET_SUBJECT, text, html };
 }
 
 function rememberOutbox(message, env) {

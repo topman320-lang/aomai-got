@@ -53,6 +53,7 @@ import {
   isEmailVerified,
   isTestEnv,
   issueEmailVerify,
+  passwordResetMail,
   sendMail,
   verificationMail,
 } from './mail.js';
@@ -174,6 +175,12 @@ function verifyLink(req, token) {
   return base ? `${base}${route}` : route;
 }
 
+function resetLink(req, token) {
+  const base = publicBaseFor(req).replace(/\/$/, '');
+  const route = `/#/reset?token=${encodeURIComponent(token)}`;
+  return base ? `${base}${route}` : route;
+}
+
 function snapshotVerify(user) {
   return {
     emailVerified: user.emailVerified,
@@ -195,6 +202,14 @@ async function deliverVerification(req, email, token) {
   const mail = verificationMail({ url });
   const sent = await sendMail({ to: email, subject: mail.subject, text: mail.text, html: mail.html });
   if (sent.devLog) console.log(`[mail] verification link for ${email}: ${url}`);
+  return sent;
+}
+
+async function deliverPasswordReset(req, email, token) {
+  const url = resetLink(req, token);
+  const mail = passwordResetMail({ url });
+  const sent = await sendMail({ to: email, subject: mail.subject, text: mail.text, html: mail.html });
+  if (sent.devLog) console.log(`[mail] password reset link for ${email}: ${url}`);
   return sent;
 }
 
@@ -554,18 +569,26 @@ app.post('/api/auth/resend-verification', async (req, res) => {
   res.json(body);
 });
 
-app.post('/api/auth/forgot', (req, res) => {
+app.post('/api/auth/forgot', async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   if (!isPlausibleEmail(email)) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入有效電郵' });
   }
+  const ip = String(req.ip || 'unknown');
+  const emailOk = allowRate(`forgot-email:${email}`, RESEND_EMAIL_LIMIT, RESEND_WINDOW_MS);
+  const ipOk = allowRate(`forgot-ip:${ip}`, RESEND_IP_LIMIT, RESEND_WINDOW_MS);
+  if (!emailOk || !ipOk) {
+    return res.status(429).json({ error: 'RATE_LIMITED', message: '請稍後再試，唔好連續申請重設' });
+  }
   const db = loadDb();
   const user = db.users.find((u) => u.email === email);
   if (user) {
-    // Ready for a mailer (`#/reset?token=...`, 30 minutes). This demo does not
-    // send mail, and the token is not returned: a different body would reveal
-    // which emails are registered, and returning the token would allow takeover.
-    signReset(user);
+    const token = signReset(user);
+    try {
+      await deliverPasswordReset(req, email, token);
+    } catch (err) {
+      console.error('[mail] forgot send failed', err?.message || err);
+    }
   }
   res.json({ ok: true, message: FORGOT_MESSAGE });
 });
