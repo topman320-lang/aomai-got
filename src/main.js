@@ -53,6 +53,7 @@ import {
   refreshWants,
   openListingThread,
   register,
+  resendVerification,
   respondToOffer,
   updateListing,
   requestPasswordReset,
@@ -264,7 +265,8 @@ function consumeAfterLogin(fallback = 'home') {
   const stored = sessionStorage.getItem('aomai-after-login');
   sessionStorage.removeItem('aomai-after-login');
   const next = String(stored || fallback || 'home').replace(/^\//, '');
-  if (!next || next === 'profile' || next === 'login' || next === 'register' || next === 'forgot' || next === 'reset') {
+  const head = next.split('?')[0];
+  if (!head || head === 'profile' || head === 'login' || head === 'register' || head === 'forgot' || head === 'reset' || head === 'verify-sent') {
     return 'me';
   }
   return next;
@@ -563,6 +565,23 @@ function offlineBanner() {
 
 /* ---------- Auth screens ---------- */
 
+async function resendVerificationEmail(email, button) {
+  const value = String(email || '').trim();
+  if (!value) {
+    toast('請先填寫電郵');
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    const data = await resendVerification(value);
+    toast(data?.message || '若此電郵已註冊且尚未認證，我們會再寄出認證信', 3600);
+  } catch (err) {
+    errToast(err, '未能重寄');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 function renderLogin() {
   const content = `
     <header class="topbar">
@@ -583,12 +602,14 @@ function renderLogin() {
         <label for="password">密碼</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="至少 6 位" />
       </div>
+      <p class="auth-note">新帳號要先完成電郵認證，先可以登入。</p>
       <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
         <button class="btn ghost" type="button" data-go="register">註冊</button>
         <button class="btn primary" type="submit">登入</button>
       </div>
       <p class="form-links">
         <button class="text-link" type="button" data-go="forgot">忘記密碼</button>
+        <button class="text-link" type="button" id="resend-verify">重寄認證信</button>
       </p>
     </form>`;
   app.innerHTML = shell(content, { noTab: true });
@@ -603,6 +624,10 @@ function renderLogin() {
     } catch (err) {
       errToast(err, '登入失敗');
     }
+  });
+  app.querySelector('#resend-verify')?.addEventListener('click', () => {
+    const email = app.querySelector('#email')?.value;
+    resendVerificationEmail(email, app.querySelector('#resend-verify'));
   });
 }
 
@@ -626,6 +651,7 @@ function renderRegister() {
         <label for="password">密碼</label>
         <input id="password" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="至少 6 位" />
       </div>
+      <p class="auth-note">建立帳號後，請先打開認證電郵，完成後先可以登入。</p>
       <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
         <button class="btn ghost" type="button" data-go="login">已有帳號</button>
         <button class="btn primary" type="submit">建立帳號</button>
@@ -635,18 +661,47 @@ function renderRegister() {
   app.querySelector('#register-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const submit = e.target.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
     try {
       dismissToast();
-      await register(
-        String(fd.get('name')).trim(),
-        String(fd.get('email')).trim(),
-        String(fd.get('password'))
-      );
-      go(consumeAfterLogin());
-      toast('註冊成功');
+      const email = String(fd.get('email')).trim();
+      await register(String(fd.get('name')).trim(), email, String(fd.get('password')));
+      go(`verify-sent?email=${encodeURIComponent(email)}`);
     } catch (err) {
       errToast(err, '註冊失敗');
+      if (submit) submit.disabled = false;
     }
+  });
+}
+
+function renderVerifySent() {
+  const { params } = parseHash();
+  const email = String(params.email || '').trim();
+  const content = `
+    <header class="topbar">
+      <button class="back" type="button" data-go="login" aria-label="返回">←</button>
+      <h1>請查收電郵</h1>
+    </header>
+    ${offlineBanner()}
+    <div class="form">
+      <p class="auth-note">${
+        email
+          ? `認證信已寄去 ${escapeHtml(email)}。請打開信入面嘅連結，啟用帳戶，然後再登入。搵唔到就睇下垃圾郵件。`
+          : '請打開認證信入面嘅連結，啟用帳戶，然後再登入。'
+      }</p>
+      <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
+        ${
+          email
+            ? '<button class="btn ghost" type="button" id="resend-verify">重寄認證信</button>'
+            : '<button class="btn ghost" type="button" data-go="register">返回註冊</button>'
+        }
+        <button class="btn primary" type="button" data-go="login">去登入</button>
+      </div>
+    </div>`;
+  app.innerHTML = shell(content, { noTab: true });
+  app.querySelector('#resend-verify')?.addEventListener('click', () => {
+    resendVerificationEmail(email, app.querySelector('#resend-verify'));
   });
 }
 
@@ -4280,6 +4335,9 @@ async function route() {
       break;
     case 'register':
       renderRegister();
+      break;
+    case 'verify-sent':
+      renderVerifySent();
       break;
     case 'privacy':
       renderPrivacy();

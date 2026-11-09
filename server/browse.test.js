@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { registerAndLogin, testServerEnv } from './test-account.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aomai-browse-'));
@@ -32,10 +33,12 @@ test('sold listings stay off the public feed and remain on mine and detail', asy
     cwd: __dirname,
     env: {
       ...process.env,
-      PORT: String(port),
-      DATA_DIR: path.join(tmp, 'data'),
-      UPLOADS_DIR: path.join(tmp, 'uploads'),
-      JWT_SECRET: 'browse-test-secret',
+      ...testServerEnv({
+        PORT: String(port),
+        DATA_DIR: path.join(tmp, 'data'),
+        UPLOADS_DIR: path.join(tmp, 'uploads'),
+        JWT_SECRET: 'browse-test-secret',
+      }),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -56,13 +59,7 @@ test('sold listings stay off the public feed and remain on mine and detail', asy
   assert.equal(demoLogin.status, 401);
 
   async function register(name, email) {
-    const res = await fetch(`${base}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password: 'secret1' }),
-    });
-    assert.equal(res.status, 201);
-    return res.json();
+    return registerAndLogin(base, { name, email });
   }
 
   const seller = await register('賣家', 'seller-browse@example.com');

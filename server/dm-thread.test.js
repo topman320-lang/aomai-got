@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { registerAndLogin, testServerEnv } from './test-account.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aomai-dm-thread-'));
@@ -32,10 +33,12 @@ test('private message opens one thread with the seller and reuses an offer threa
     cwd: __dirname,
     env: {
       ...process.env,
-      PORT: String(port),
-      DATA_DIR: path.join(tmp, 'data'),
-      UPLOADS_DIR: path.join(tmp, 'uploads'),
-      JWT_SECRET: 'dm-thread-test-secret',
+      ...testServerEnv({
+        PORT: String(port),
+        DATA_DIR: path.join(tmp, 'data'),
+        UPLOADS_DIR: path.join(tmp, 'uploads'),
+        JWT_SECRET: 'dm-thread-test-secret',
+      }),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -43,13 +46,7 @@ test('private message opens one thread with the seller and reuses an offer threa
   await waitForHealth();
 
   async function register(name, email) {
-    const res = await fetch(`${base}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password: 'secret1' }),
-    });
-    assert.equal(res.status, 201);
-    return res.json();
+    return registerAndLogin(base, { name, email });
   }
 
   const seller = await register('賣家', 'seller-dm@example.com');

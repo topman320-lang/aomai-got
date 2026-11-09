@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { registerAndLogin, testServerEnv } from './test-account.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aomai-offers-auth-'));
@@ -36,13 +37,7 @@ const PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 async function register(name, email) {
-  const res = await fetch(`${base}/api/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email, password: 'secret1' }),
-  });
-  assert.equal(res.status, 201);
-  return res.json();
+  return registerAndLogin(base, { name, email });
 }
 
 function authHeaders(token) {
@@ -54,10 +49,12 @@ test('listing offers are hidden from guests and other buyers', async (t) => {
     cwd: __dirname,
     env: {
       ...process.env,
-      PORT: String(port),
-      DATA_DIR: path.join(tmp, 'data'),
-      UPLOADS_DIR: path.join(tmp, 'uploads'),
-      JWT_SECRET: 'offers-auth-test-secret',
+      ...testServerEnv({
+        PORT: String(port),
+        DATA_DIR: path.join(tmp, 'data'),
+        UPLOADS_DIR: path.join(tmp, 'uploads'),
+        JWT_SECRET: 'offers-auth-test-secret',
+      }),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

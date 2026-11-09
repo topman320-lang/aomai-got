@@ -99,7 +99,7 @@ export function isLoggedIn() {
   return Boolean(getToken() && state.me?.id);
 }
 
-/** Bumps on login, register, and logout so in-flight notices cannot surface after a switch. */
+/** Bumps on login and logout so in-flight notices cannot surface after a switch. */
 let sessionGen = 1;
 
 export function sessionGeneration() {
@@ -415,17 +415,13 @@ export async function login(email, password) {
   return state.me;
 }
 
+/** Creates an unverified account. The caller must open the email before login. */
 export async function register(name, email, password) {
-  sessionGen += 1;
-  const { token, user } = await AuthApi.register({ name, email, password });
-  rotateSession();
-  setToken(token);
-  state.me = asMe(user);
-  await Promise.all([refreshListings(), refreshThreads(), refreshWants()]);
-  await refreshMyOffers();
-  await refreshIncomingOffers();
-  await refreshBadges();
-  return state.me;
+  return AuthApi.register({ name, email, password });
+}
+
+export async function resendVerification(email) {
+  return AuthApi.resendVerification({ email });
 }
 
 function withSeller(listing, me) {

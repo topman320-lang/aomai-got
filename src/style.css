@@ -704,8 +704,17 @@ img {
 .form-links {
   display: flex;
   justify-content: flex-start;
+  gap: 16px;
   margin-top: -6px;
   padding: 0 4px;
+}
+
+.auth-note {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
 }
 
 .text-link {

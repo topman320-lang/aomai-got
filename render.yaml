@@ -25,3 +25,9 @@ services:
         value: /var/data/db
       - key: UPLOADS_DIR
         value: /var/data/uploads
+      - key: SMTP_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
