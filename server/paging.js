@@ -5,6 +5,7 @@
 export function filterBrowseListings(listings, { q = '', category = '', min = null, max = null, sellerId = '', includeSold = false } = {}) {
   let list = Array.isArray(listings) ? [...listings] : [];
   list.sort((a, b) => (b?.createdAt || 0) - (a?.createdAt || 0));
+  list = list.filter((l) => !l?.removedAt);
   if (sellerId) list = list.filter((l) => l?.sellerId === sellerId);
   if (!includeSold) list = list.filter((l) => !l?.sold);
   const cat = String(category || '').trim();

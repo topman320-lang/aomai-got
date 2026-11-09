@@ -205,6 +205,7 @@ export function listingDto(l, db, publicBase, viewerId = '') {
     emoji: l.emoji,
     photos: absolutePhotos(l.photos || [], publicBase),
     sold: Boolean(l.sold),
+    removed: Boolean(l.removedAt),
     createdAt: l.createdAt,
   };
 }

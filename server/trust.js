@@ -285,7 +285,7 @@ export function badgeCountsFor(db, userId) {
   let offers = 0;
   for (const offer of db.offers || []) {
     const listing = (db.listings || []).find((l) => l.id === offer.listingId);
-    if (!listing || listing.sold) continue;
+    if (!listing || listing.sold || listing.removedAt) continue;
     const status = offer.status || 'pending';
     if (offer.fromId === userId && status === 'countered') offers += 1;
     else if (listing.sellerId === userId && offer.fromId !== userId && status === 'pending') offers += 1;
@@ -296,7 +296,7 @@ export function badgeCountsFor(db, userId) {
 export function priceHint(db, category, condition) {
   const cat = GUIDE[category] ? category : '其他';
   const cond = FACTOR[condition] ? condition : '良好';
-  const peers = (db.listings || []).filter((l) => l.category === cat && Number(l.price) > 0);
+  const peers = (db.listings || []).filter((l) => !l.removedAt && l.category === cat && Number(l.price) > 0);
   const same = peers.filter((l) => l.condition === cond);
   const pool = same.length >= 2 ? same : peers;
   if (pool.length >= 1) {

@@ -277,7 +277,13 @@ function relativeTime(ts) {
 
 function offerStatusOf(offer) {
   const status = offer?.status;
-  if (status === 'accepted' || status === 'rejected' || status === 'countered' || status === 'pending') {
+  if (
+    status === 'accepted' ||
+    status === 'rejected' ||
+    status === 'countered' ||
+    status === 'cancelled' ||
+    status === 'pending'
+  ) {
     return status;
   }
   return 'pending';
@@ -787,6 +793,7 @@ app.patch('/api/listings/:id', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   if (listing.sellerId !== req.user.id) {
     return res.status(403).json({ error: 'FORBIDDEN', message: '只有刊登者可以修改' });
   }
@@ -814,6 +821,7 @@ app.patch('/api/listings/:id/sold', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   if (listing.sellerId !== req.user.id) {
     return res.status(403).json({ error: 'FORBIDDEN', message: '只有賣家可以標示已售出' });
   }
@@ -826,9 +834,63 @@ app.patch('/api/listings/:id/sold', auth, (req, res) => {
   res.json({ listing: listingDto(listing, db, publicBaseFor(req), req.user.id) });
 });
 
+/** Hide the listing from shelves. The row stays so old detail and chat links still open. */
+app.delete('/api/listings/:id', auth, (req, res) => {
+  const db = loadDb();
+  const listing = db.listings.find((l) => l.id === req.params.id);
+  if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listing.sellerId !== req.user.id) {
+    return res.status(403).json({ error: 'FORBIDDEN', message: '只有刊登者可以刪除' });
+  }
+  const nowTs = Date.now();
+  const already = Boolean(listing.removedAt);
+  if (!already) listing.removedAt = nowTs;
+  db.wants = (db.wants || []).filter((w) => w.listingId !== listing.id);
+  if (!already) {
+    const open = (db.offers || []).filter((offer) => {
+      if (offer.listingId !== listing.id) return false;
+      const status = offerStatusOf(offer);
+      return status === 'pending' || status === 'countered';
+    });
+    for (const offer of open) {
+      offer.status = 'rejected';
+      offer.agreedAmount = null;
+      offer.updatedAt = nowTs;
+      bumpOffer(db, offer);
+      const thread = ensureThread(db, listing, offer.fromId);
+      pushMessage(db, thread, req.user.id, '刊登已移除，這筆出價已結束');
+      notifyUser(db, {
+        userId: offer.fromId,
+        kind: 'offer',
+        title: '刊登已移除',
+        body: `${req.user.name} 移除了「${listing.title}」`,
+        href: `chat/${thread.id}`,
+        refId: offer.id,
+      });
+    }
+  }
+  touch(db, req.user.id);
+  persist();
+  const offers = (db.offers || [])
+    .filter((o) => o.listingId === listing.id)
+    .map((o) => offerDto(o, db, req.user.id));
+  const threads = (db.threads || [])
+    .filter((t) => t.listingId === listing.id && (t.buyerId === req.user.id || t.sellerId === req.user.id))
+    .map((t) => threadDto(t, req.user.id, db, req));
+  res.json({
+    ok: true,
+    listing: listingDto(listing, db, publicBaseFor(req), req.user.id),
+    offers,
+    threads,
+  });
+});
+
 app.post('/api/listings/:id/confirm-receipt', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
+  if (listing?.removedAt && !listing.sold) {
+    return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  }
   const result = applyConfirmReceipt(listing, db, req.user.id);
   if (!result.ok) {
     return res.status(result.status).json({ error: result.error, message: result.message });
@@ -854,6 +916,7 @@ app.post('/api/listings/:id/want', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND' });
+  if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   const exists = db.wants.find((w) => w.userId === req.user.id && w.listingId === listing.id);
   if (!exists) {
     db.wants.unshift({ userId: req.user.id, listingId: listing.id, createdAt: Date.now() });
@@ -871,6 +934,12 @@ app.post('/api/listings/:id/thread', auth, (req, res) => {
   if (listing.sellerId === req.user.id) {
     return res.status(400).json({ error: 'OWN_LISTING', message: '不能私訊自己的刊登' });
   }
+  const existing = db.threads.find(
+    (t) => t.listingId === listing.id && t.buyerId === req.user.id && t.sellerId === listing.sellerId
+  );
+  if (listing.removedAt && !existing) {
+    return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  }
   const thread = ensureThread(db, listing, req.user.id);
   touch(db, req.user.id);
   persist();
@@ -887,7 +956,13 @@ app.delete('/api/listings/:id/want', auth, (req, res) => {
 
 app.get('/api/wants', auth, (req, res) => {
   const db = loadDb();
-  const ids = db.wants.filter((w) => w.userId === req.user.id).map((w) => w.listingId);
+  const ids = db.wants
+    .filter((w) => w.userId === req.user.id)
+    .map((w) => w.listingId)
+    .filter((lid) => {
+      const row = db.listings.find((l) => l.id === lid);
+      return row && !row.removedAt;
+    });
   const listings = ids
     .map((lid) => db.listings.find((l) => l.id === lid))
     .filter(Boolean)
@@ -900,6 +975,7 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   if (listing.sold) return res.status(400).json({ error: 'LISTING_SOLD', message: '此商品已售出' });
   if (listing.sellerId === req.user.id) {
     return res.status(400).json({ error: 'OWN_LISTING', message: '不能對自己的刊登議價' });
@@ -1010,14 +1086,50 @@ app.patch('/api/offers/:id', auth, (req, res) => {
   if (!offer) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這筆出價' });
   const listing = db.listings.find((l) => l.id === offer.listingId);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
-  if (listing.sold) return res.status(400).json({ error: 'LISTING_SOLD', message: '此商品已售出' });
 
   const isSeller = listing.sellerId === req.user.id;
   const isBuyer = offer.fromId === req.user.id;
+  // A buyer can still withdraw a pending bid after the listing is marked sold.
+  // Every other update stays blocked, including strangers, so the sold response stays the same.
+  if (listing.removedAt && !(action === 'cancel' && isBuyer)) {
+    return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  }
+  if (listing.sold && !(action === 'cancel' && isBuyer)) {
+    return res.status(400).json({ error: 'LISTING_SOLD', message: '此商品已售出' });
+  }
   if (!isSeller && !isBuyer) return res.status(403).json({ error: 'FORBIDDEN' });
 
   const status = offerStatusOf(offer);
-  if (status === 'accepted' || status === 'rejected') {
+  if (action === 'cancel') {
+    if (!isBuyer) {
+      return res.status(403).json({ error: 'FORBIDDEN', message: '只有買家可以取消出價' });
+    }
+    if (status !== 'pending') {
+      return res.status(400).json({ error: 'OFFER_CLOSED', message: '只有待賣家回覆時可以取消' });
+    }
+    offer.status = 'cancelled';
+    offer.agreedAmount = null;
+    offer.updatedAt = Date.now();
+    bumpOffer(db, offer);
+    const thread = ensureThread(db, listing, offer.fromId);
+    pushMessage(db, thread, req.user.id, `已取消出價 MOP ${offer.amount}`);
+    notifyUser(db, {
+      userId: listing.sellerId,
+      kind: 'offer',
+      title: '議價有更新',
+      body: `${req.user.name} 取消了出價`,
+      href: `chat/${thread.id}`,
+      refId: offer.id,
+    });
+    touch(db, req.user.id);
+    persist();
+    return res.json({
+      offer: offerDto(offer, db, req.user.id),
+      thread: threadDto(thread, req.user.id, db, req),
+    });
+  }
+
+  if (status === 'accepted' || status === 'rejected' || status === 'cancelled') {
     return res.status(400).json({ error: 'OFFER_CLOSED', message: '這筆出價已有結果' });
   }
 
@@ -1246,6 +1358,29 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   });
 });
 
+/** Sender removes their own message for both people. There is no per-viewer hide flag. */
+app.delete('/api/threads/:id/messages/:messageId', auth, (req, res) => {
+  const db = loadDb();
+  const thread = db.threads.find((t) => t.id === req.params.id);
+  if (!thread) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到對話' });
+  if (thread.buyerId !== req.user.id && thread.sellerId !== req.user.id) {
+    return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+  const msg = db.messages.find((m) => m.id === req.params.messageId && m.threadId === thread.id);
+  if (!msg) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這則訊息' });
+  if (msg.fromId !== req.user.id) {
+    return res.status(403).json({ error: 'FORBIDDEN', message: '只能刪除自己的訊息' });
+  }
+  db.messages = db.messages.filter((m) => m.id !== msg.id);
+  const rest = db.messages
+    .filter((m) => m.threadId === thread.id)
+    .sort((a, b) => a.createdAt - b.createdAt);
+  thread.preview = messagePreviewText(rest[rest.length - 1]);
+  touch(db, req.user.id);
+  persist();
+  res.json({ ok: true, thread: threadDto(thread, req.user.id, db, req) });
+});
+
 app.get('/api/badges', auth, (req, res) => {
   const db = loadDb();
   res.json({ ...badgeCountsFor(db, req.user.id), notices: unreadNotices(db, req.user.id) });
@@ -1318,7 +1453,7 @@ app.get('/api/users/:id', optionalAuth, (req, res) => {
   const profile = presentUser(user, req);
   delete profile.email;
   const listings = db.listings
-    .filter((l) => l.sellerId === user.id)
+    .filter((l) => l.sellerId === user.id && !l.removedAt)
     .sort((a, b) => b.createdAt - a.createdAt)
     .map((l) => listingDto(l, db, publicBaseFor(req), req.user?.id || ''));
   const reviews = (db.reviews || [])
@@ -1370,7 +1505,7 @@ app.post('/api/listings/:id/reviews', auth, (req, res) => {
 
 app.get('/api/stats', auth, (req, res) => {
   const db = loadDb();
-  const mine = db.listings.filter((l) => l.sellerId === req.user.id);
+  const mine = db.listings.filter((l) => l.sellerId === req.user.id && !l.removedAt);
   const myOffers = db.offers.filter((o) => o.fromId === req.user.id);
   const sold = mine.filter((l) => l.sold).length;
   const trust = trustSummary(req.user.id, db, { recentLimit: 3 });
