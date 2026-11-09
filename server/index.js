@@ -42,7 +42,20 @@ import {
 import { buildProposal, confirmProposal, findHandoff, handoffAccess, presentHandoff } from './handoff.js';
 import { addNotice, markNoticesRead, noticesFor, remotePushHook, unreadNotices } from './notices.js';
 import { filterBrowseListings, pageWindow } from './paging.js';
-import { privacyPage, supportPage } from './public-pages.js';
+import { privacyPage, supportPage, verifyResultPage } from './public-pages.js';
+import {
+  RESEND_EMAIL_LIMIT,
+  RESEND_IP_LIMIT,
+  RESEND_WINDOW_MS,
+  allowRate,
+  assertCanSendMail,
+  consumeEmailVerify,
+  isEmailVerified,
+  isTestEnv,
+  issueEmailVerify,
+  sendMail,
+  verificationMail,
+} from './mail.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8787);
@@ -142,6 +155,62 @@ function isPlausibleEmail(email) {
 }
 
 const FORGOT_MESSAGE = '若電郵已註冊，我們會寄出重設指引';
+const REGISTER_PENDING_MESSAGE = '請先開啟認證電郵，完成後先可以登入';
+const LOGIN_UNVERIFIED_MESSAGE = '請先查收電郵完成認證';
+const RESEND_MESSAGE = '若此電郵已註冊且尚未認證，我們會再寄出認證信';
+const VERIFY_BAD_MESSAGE = '認證連結無效或已過期';
+const MAIL_FAILED_MESSAGE = '暫時未能寄出認證電郵，請稍後再試';
+
+function readToken(value) {
+  if (typeof value !== 'string') return '';
+  const token = value.trim();
+  if (!token || token.length > 200) return '';
+  return token;
+}
+
+function verifyLink(req, token) {
+  const base = publicBaseFor(req).replace(/\/$/, '');
+  const route = `/auth/verify?token=${encodeURIComponent(token)}`;
+  return base ? `${base}${route}` : route;
+}
+
+function snapshotVerify(user) {
+  return {
+    emailVerified: user.emailVerified,
+    emailVerify: user.emailVerify
+      ? { hash: user.emailVerify.hash, expiresAt: user.emailVerify.expiresAt }
+      : undefined,
+  };
+}
+
+function restoreVerify(user, snap) {
+  if (snap.emailVerified === undefined) delete user.emailVerified;
+  else user.emailVerified = snap.emailVerified;
+  if (!snap.emailVerify) delete user.emailVerify;
+  else user.emailVerify = { ...snap.emailVerify };
+}
+
+async function deliverVerification(req, email, token) {
+  const url = verifyLink(req, token);
+  const mail = verificationMail({ url });
+  const sent = await sendMail({ to: email, subject: mail.subject, text: mail.text, html: mail.html });
+  if (sent.devLog) console.log(`[mail] verification link for ${email}: ${url}`);
+  return sent;
+}
+
+function verifyEmailToken(raw) {
+  const token = readToken(raw);
+  if (!token) return { ok: false };
+  const db = loadDb();
+  for (const user of db.users) {
+    if (!user?.emailVerify?.hash) continue;
+    const result = consumeEmailVerify(user, token);
+    if (!result.matched) continue;
+    persist();
+    return { ok: result.ok };
+  }
+  return { ok: false };
+}
 
 function avatarFromName(name = '') {
   const chars = Array.from(String(name).trim());
@@ -370,12 +439,20 @@ app.get('/api/health', (_req, res) => {
 });
 
 /* ---------- Auth ---------- */
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const name = String(req.body?.name || '').trim();
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
   if (!name || !email || password.length < 6) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '請填寫名稱、電郵，密碼至少 6 位' });
+  }
+  if (!isPlausibleEmail(email)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入有效電郵' });
+  }
+  try {
+    assertCanSendMail();
+  } catch {
+    return res.status(503).json({ error: 'MAIL_NOT_CONFIGURED', message: '伺服器未設定寄信，暫時未能註冊' });
   }
   const db = loadDb();
   if (db.users.some((u) => u.email === email)) {
@@ -389,13 +466,29 @@ app.post('/api/auth/register', (req, res) => {
     avatar: avatarFromName(name),
     bio: '澳門街坊',
     verified: false,
+    emailVerified: false,
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
   };
+  const verificationToken = issueEmailVerify(user);
   db.users.push(user);
   persist();
-  const token = sign(user);
-  res.status(201).json({ token, user: presentUser(user, req) });
+  try {
+    await deliverVerification(req, email, verificationToken);
+  } catch (err) {
+    db.users = db.users.filter((u) => u.id !== user.id);
+    persist();
+    console.error('[mail] register send failed', err?.message || err);
+    return res.status(503).json({ error: 'MAIL_FAILED', message: MAIL_FAILED_MESSAGE });
+  }
+  const body = {
+    ok: true,
+    emailVerified: false,
+    email,
+    message: REGISTER_PENDING_MESSAGE,
+  };
+  if (isTestEnv()) body.verificationToken = verificationToken;
+  res.status(201).json(body);
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -406,9 +499,59 @@ app.post('/api/auth/login', (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
     return res.status(401).json({ error: 'BAD_CREDENTIALS', message: '電郵或密碼不正確' });
   }
+  if (!isEmailVerified(user)) {
+    return res.status(403).json({ error: 'EMAIL_NOT_VERIFIED', message: LOGIN_UNVERIFIED_MESSAGE });
+  }
   touch(db, user.id);
   persist();
   res.json({ token: sign(user), user: presentUser(user, req) });
+});
+
+app.get('/auth/verify', (req, res) => {
+  const result = verifyEmailToken(req.query?.token);
+  res.status(result.ok ? 200 : 400).type('html').send(verifyResultPage({ ok: result.ok }));
+});
+
+app.post('/api/auth/verify', (req, res) => {
+  const result = verifyEmailToken(req.body?.token);
+  if (!result.ok) return res.status(400).json({ error: 'BAD_TOKEN', message: VERIFY_BAD_MESSAGE });
+  res.json({ ok: true, emailVerified: true, message: '電郵已認證，請登入' });
+});
+
+app.post('/api/auth/resend-verification', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!isPlausibleEmail(email)) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入有效電郵' });
+  }
+  const ip = String(req.ip || 'unknown');
+  const emailOk = allowRate(`resend-email:${email}`, RESEND_EMAIL_LIMIT, RESEND_WINDOW_MS);
+  const ipOk = allowRate(`resend-ip:${ip}`, RESEND_IP_LIMIT, RESEND_WINDOW_MS);
+  if (!emailOk || !ipOk) {
+    return res.status(429).json({ error: 'RATE_LIMITED', message: '請稍後再試，唔好連續重寄' });
+  }
+  try {
+    assertCanSendMail();
+  } catch {
+    return res.status(503).json({ error: 'MAIL_NOT_CONFIGURED', message: '伺服器未設定寄信，暫時未能重寄認證信' });
+  }
+  const db = loadDb();
+  const user = db.users.find((u) => u.email === email);
+  let verificationToken = '';
+  if (user && !isEmailVerified(user)) {
+    const snap = snapshotVerify(user);
+    verificationToken = issueEmailVerify(user);
+    try {
+      await deliverVerification(req, email, verificationToken);
+      persist();
+    } catch (err) {
+      restoreVerify(user, snap);
+      verificationToken = '';
+      console.error('[mail] resend failed', err?.message || err);
+    }
+  }
+  const body = { ok: true, message: RESEND_MESSAGE };
+  if (isTestEnv() && verificationToken) body.verificationToken = verificationToken;
+  res.json(body);
 });
 
 app.post('/api/auth/forgot', (req, res) => {
@@ -1227,7 +1370,8 @@ app.get('*', (req, res, next) => {
     req.path.startsWith('/api') ||
     req.path.startsWith('/uploads') ||
     req.path === '/privacy' ||
-    req.path === '/support'
+    req.path === '/support' ||
+    req.path === '/auth/verify'
   ) {
     return next();
   }

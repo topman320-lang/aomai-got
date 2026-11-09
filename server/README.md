@@ -18,7 +18,10 @@ From repo root: `npm run server` (after `npm run server:install` once).
 
 ## Accounts
 
-There is no built-in demo login. Register with `POST /api/auth/register`.
+There is no built-in demo login. `POST /api/auth/register` creates an account with `emailVerified: false` and emails a one-time link (48 hours). The response does not include a session token. `POST /api/auth/login` rejects that account until `GET /auth/verify?token=` or `POST /api/auth/verify` marks it verified. Rows that have no `emailVerified` field (accounts created before this check, including current users) can still log in.
+
+`POST /api/auth/resend-verification` sends another link only when the address is registered and still unverified. The JSON message is the same when the address is unknown. Password reset (`POST /api/auth/forgot`) still only acknowledges the request and does not send mail.
+
 On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are removed with the listings, offers, threads, messages, reviews, handoffs, wants, devices, and notices that belong to them. Other emails are left in place.
 
 ## Persistence
@@ -37,7 +40,11 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 | `JWT_SECRET` | `aomai-got-dev-secret-change-me` |
 | `DATA_DIR` | `server/data`. On Render: `/var/data/db` |
 | `UPLOADS_DIR` | `server/uploads`. On Render: `/var/data/uploads` |
-| `PUBLIC_BASE` | request host, or `RENDER_EXTERNAL_URL` when set. Loopback values are ignored so production does not emit `127.0.0.1`. |
+| `PUBLIC_BASE` | request host, or `RENDER_EXTERNAL_URL` when set. Loopback values are ignored so production does not emit `127.0.0.1`. Verification links use this origin. |
+| `SMTP_URL` | unset. SMTP URL such as `smtps://user:pass@smtp.example.com:465`. Do not commit the value. |
+| `RESEND_API_KEY` | unset. If this and `SMTP_URL` are both set, Resend is used. |
+| `MAIL_FROM` | `澳賣GOT <noreply@aomai-got.onrender.com>`. Set a sender the provider has already verified. |
+| `NODE_ENV` | Render sets `production`. Register then returns 503 unless `SMTP_URL` or `RESEND_API_KEY` is set, so a new account is not created without a verification email. |
 
 ## Extra routes
 
@@ -45,6 +52,9 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 |--------|------|------|--------|
 | GET | `/privacy` | no | Public privacy policy. Contact `mogot.app@gmail.com` |
 | GET | `/support` | no | Public support page. Same mailbox |
+| GET | `/auth/verify?token=` | no | One-time email verification page |
+| POST | `/api/auth/verify` | no | `{ token }` marks `emailVerified` |
+| POST | `/api/auth/resend-verification` | no | `{ email }`. Same message whether or not the address exists. Limited per email and IP |
 | GET | `/api/badges` | yes | `{ messages, offers, notices }` — unread threads, offers waiting on you, unread in-app notices |
 | GET | `/api/listings?limit&offset` | optional | Public browse hides sold. `mine=1` (auth) is the signed-in seller's inventory, including sold. Omit `limit` for every matching row. With `limit`, also returns `total`, `hasMore`, `nextOffset` |
 | PUT | `/api/offers/:id/handoff` | yes | Buyer or seller, accepted offer only. `{ placeId, customPlace?, when, note? }` |

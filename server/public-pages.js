@@ -34,7 +34,7 @@ export function privacyPage() {
   <p>澳賣GOT（MoGOT，下稱「本服務」）是一個以鄰里議價為主的二手物品交流平台。我們重視你的個人資料，並依本政策說明蒐集、使用與保存方式。</p>
   <h2>一、我們蒐集什麼</h2>
   <ul>
-    <li>帳號資料：使用者名稱、個人簡介、頭像、電郵、密碼（加密儲存）。</li>
+    <li>帳號資料：使用者名稱、個人簡介、頭像、電郵、密碼（加密儲存）。註冊後會寄出一次性認證連結，完成後先可以登入。</li>
     <li>刊登與交易相關內容：商品說明、照片、出價、交收意願、聊天訊息（文字、相片、語音）、街坊短評。語音只在你於對話內按錄音時才會向瀏覽器索取麥克風，並與該對話一併保存。</li>
     <li>見面安排：雙方自行填寫的見面時間、地點與備註。平台不代為保管物品或貨款。</li>
     <li>通知：若你開啟提醒，我們會保存裝置權杖，以便日後發送訊息與出價通知。未設定推播憑證時，提醒只在你開啟應用時於應用內顯示。</li>
@@ -42,7 +42,7 @@ export function privacyPage() {
   </ul>
   <h2>二、用途</h2>
   <ul>
-    <li>提供註冊登入、刊登、議價、訊息、見面安排與你開啟的提醒。</li>
+    <li>提供註冊、電郵認證、登入、刊登、議價、訊息、見面安排與你開啟的提醒。</li>
     <li>維護平台安全、防詐騙與不當內容。</li>
     <li>依法律要求配合主管機關。</li>
   </ul>
@@ -78,5 +78,24 @@ export function supportPage() {
   <h2>相關頁面</h2>
   <p><a href="/privacy">隱私政策</a></p>
   <p class="muted">網站：<a href="https://aomai-got.onrender.com">https://aomai-got.onrender.com</a></p>`,
+  });
+}
+
+/** Browser page after the user opens the one-time verification link. */
+export function verifyResultPage({ ok }) {
+  if (ok) {
+    return page({
+      title: '電郵已認證',
+      body: `  <h1>電郵已認證</h1>
+  <p class="muted">澳賣GOT · MoGOT</p>
+  <p>你嘅帳戶已啟用。請打開澳賣GOT App，用剛才嘅電郵同密碼登入，就可以刊登同出價。</p>
+  <p><a href="/#/login">前往登入</a></p>`,
+    });
+  }
+  return page({
+    title: '未能認證',
+    body: `  <h1>未能認證</h1>
+  <p>認證連結無效或已過期。若你已完成認證，請直接打開澳賣GOT登入。否則請喺 App 入面重寄認證信。</p>
+  <p><a href="/#/login">返回登入</a></p>`,
   });
 }

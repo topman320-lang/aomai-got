@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { registerAndLogin, testServerEnv } from './test-account.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aomai-voice-api-'));
@@ -54,10 +55,12 @@ test('voice messages follow the chat image trust model', async (t) => {
     cwd: __dirname,
     env: {
       ...process.env,
-      PORT: String(port),
-      DATA_DIR: path.join(tmp, 'data'),
-      UPLOADS_DIR: path.join(tmp, 'uploads'),
-      JWT_SECRET: 'voice-test-secret',
+      ...testServerEnv({
+        PORT: String(port),
+        DATA_DIR: path.join(tmp, 'data'),
+        UPLOADS_DIR: path.join(tmp, 'uploads'),
+        JWT_SECRET: 'voice-test-secret',
+      }),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -80,13 +83,7 @@ test('voice messages follow the chat image trust model', async (t) => {
   }
 
   async function register(name, email) {
-    const res = await fetch(`${base}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password: 'secret1' }),
-    });
-    assert.equal(res.status, 201);
-    return res.json();
+    return registerAndLogin(base, { name, email });
   }
 
   const seller = await register('賣家', 'seller-voice@example.com');
@@ -127,13 +124,7 @@ test('voice messages follow the chat image trust model', async (t) => {
   });
   assert.equal(anon.status, 401);
 
-  const strangerRes = await fetch(`${base}/api/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: '路人', email: 'stranger-voice@aomai.got', password: 'secret1' }),
-  });
-  assert.equal(strangerRes.status, 201);
-  const stranger = await strangerRes.json();
+  const stranger = await register('路人', 'stranger-voice@aomai.got');
   const forbidden = await fetch(`${base}/api/threads/${threadId}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${stranger.token}`, 'Content-Type': 'application/json' },
