@@ -881,8 +881,6 @@ async function renderHome(token = nextView(), options = {}) {
       <header class="topbar topbar-brand">
         <div class="brand brand-home">
           <img class="brand-logo brand-logo-home" data-brand-logo="auto" src="${brandLogoSrc()}" alt="澳賣GOT" />
-          <span class="muted tiny brand-tagline">MoGOT</span>
-          <span class="muted tiny brand-tagline">一物一故事 · 閑置亦有價</span>
         </div>
       </header>
       <div class="search">
