@@ -99,9 +99,7 @@ body.lock-dim #floor{filter:brightness(.7)}
       <div class="sub">BIGBANG</div>
     </div>
     <div class="rules">
-      畫面同節奏參考正版節目嘅演播廳：中央熱座光環、菱形題板、橙色鎖定、綠色正確、紅色錯誤，右側獎金樹，上方三個錦囊。<br>
-      音樂係原創合成，模擬節目由淺入深嘅心跳同張力，唔會使用受版權保護嘅原版配樂。<br>
-      十五條粵語題，全部圍繞 BIGBANG 同各成員：出道歷史、代表作、專輯，以及 G-Dragon、太陽、T.O.P、大聲、勝利。安全線喺第 5 同第 10 題。
+      題目全部圍繞 BIGBANG 同各大成員。
     </div>
     <button class="btn" id="startBtn">開始挑戰</button>
   </section>
@@ -198,14 +196,14 @@ const Music = {
     if(!this.ctx){
       this.ctx = new (window.AudioContext||window.webkitAudioContext)();
       this.master = this.ctx.createGain();
-      this.master.gain.value = this.muted ? 0 : 0.42;
+      this.master.gain.value = this.muted ? 0 : 0.78;
       this.master.connect(this.ctx.destination);
     }
     if(this.ctx.state==="suspended") this.ctx.resume();
   },
   setMuted(m){
     this.muted=m;
-    if(this.master) this.master.gain.value = m?0:0.42;
+    if(this.master) this.master.gain.value = m?0:0.78;
     $("muteBtn").textContent = m?"🔇":"♪";
   },
   out(){ this.init(); return {c:this.ctx, m:this.master, t:this.ctx.currentTime}; },
@@ -231,13 +229,13 @@ const Music = {
     const g=c.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(1,t+0.7);
     g.connect(this.master); this.bedGain=g;
     const f0 = i<5? 49 : i<10? 41 : i<14? 34 : 27.5;
-    [[f0,"sine",0.15],[f0*2,"sine",0.045],[i>=10?f0*1.498:f0*1.5,"triangle", i>=10?0.04:0.025]].forEach(([f,ty,vol])=>{
+    [[f0,"sine",0.32],[f0*2,"sine",0.11],[i>=10?f0*1.498:f0*1.5,"triangle", i>=10?0.10:0.07]].forEach(([f,ty,vol])=>{
       const o=c.createOscillator(), gg=c.createGain();
       o.type=ty; o.frequency.value=f; gg.gain.value=vol;
       o.connect(gg); gg.connect(g); o.start(); this.nodes.push(o);
     });
     const period = i<5? 1380 : i<10? 1080 : i<14? 900 : 780;
-    const vol = 0.22 + i*0.012;
+    const vol = 0.42 + i*0.02;
     const boom=()=>{
       if(!this.ctx||!this.bedGain) return;
       const now=this.ctx.currentTime;
