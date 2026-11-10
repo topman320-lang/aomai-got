@@ -18,7 +18,9 @@ button{font-family:inherit;cursor:pointer}
 .hidden{display:none !important}
 #floor{position:fixed;inset:0;width:100%;height:100%;z-index:0}
 #vignette{position:fixed;inset:0;z-index:1;pointer-events:none;background:radial-gradient(circle at 50% 38%,transparent 18%,#000 86%)}
-#app{position:relative;z-index:2;height:100%;height:100dvh;display:flex;flex-direction:column;padding:calc(8px + env(safe-area-inset-top)) 12px env(safe-area-inset-bottom)}
+#app{position:relative;z-index:2;height:calc(100dvh - 120px - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;padding:calc(8px + env(safe-area-inset-top)) 12px 0}
+#mogotAd{position:fixed;left:0;right:0;bottom:0;z-index:4;width:100%;height:calc(120px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);background:#111;box-sizing:border-box}
+#mogotAd img{display:block;width:100%;height:120px;object-fit:cover;object-position:center;pointer-events:none}
 .screen{flex:1;display:flex;flex-direction:column;min-height:0}
 .center{align-items:center;justify-content:center;text-align:center}
 
@@ -136,6 +138,9 @@ body.lock-dim #floor{filter:brightness(.7)}
   </section>
 </div>
 <div id="modal" class="modal hidden"></div>
+<footer id="mogotAd" aria-label="澳賣GOT">
+  <img src="banner-390.png" srcset="banner-390.png 1x, banner-390@2x.png 2x, banner-390@3x.png 3x" width="390" height="120" alt="澳賣GOT，新app快將推出"/>
+</footer>
 <script>
 const BANK = [
   // easy
