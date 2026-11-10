@@ -288,8 +288,8 @@ const Music = {
       this.introEl=hook("start_bed_v2.mp3");
       this.heartEl=hook("heartbeat_bed.mp3");
     }
-    if(!this.wrongEl){
-      const el=new Audio("wrong_reveal_v2_loud.mp3");
+    const sting=src=>{
+      const el=new Audio(src);
       el.loop=false;
       el.preload="auto";
       el.crossOrigin="anonymous";
@@ -299,8 +299,10 @@ const Music = {
         const n=this.ctx.createMediaElementSource(el);
         n.connect(this.master);
       }catch(e){}
-      this.wrongEl=el;
-    }
+      return el;
+    };
+    if(!this.wrongEl) this.wrongEl=sting("wrong_reveal_v2_loud.mp3");
+    if(!this.correctEl) this.correctEl=sting("correct_reveal_v4.mp3");
   },
   playFile(kind, fade){
     this.ensureFiles();
@@ -462,11 +464,26 @@ const Music = {
     this.tone("triangle", 86, t+0.05, 1.1, 0.06);
     this.tone("sine", 129, t+0.2, 0.9, 0.04);
   },
-  correct(){
-    this.stopBed();
+  playCorrectFile(){
+    this.ensureFiles();
+    const el=this.correctEl;
+    if(!el) return false;
+    try{ el.pause(); el.currentTime=0; el.volume=1; }catch(e){}
+    const p=el.play();
+    if(p&&p.catch) p.catch(()=>{ if(!this.correctUsedFile) this.synthCorrect(); });
+    el.onerror=()=>{ this.correctUsedFile=false; this.synthCorrect(); };
+    this.correctUsedFile=true;
+    return true;
+  },
+  synthCorrect(){
     const {t}=this.out();
     [196,247,294,392].forEach((f,i)=>this.tone("triangle", f, t+i*0.08, 0.55, 0.09));
     this.tone("sine", 98, t, 0.9, 0.1);
+  },
+  correct(){
+    this.stopBed();
+    this.correctUsedFile=false;
+    if(!this.playCorrectFile()) this.synthCorrect();
   },
   playWrongFile(){
     this.ensureFiles();
