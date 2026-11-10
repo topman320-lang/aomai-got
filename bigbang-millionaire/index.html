@@ -200,6 +200,57 @@ const Music = {
       this.master.connect(this.ctx.destination);
     }
     if(this.ctx.state==="suspended") this.ctx.resume();
+    this.ensureFiles();
+  },
+  ensureFiles(){
+    if(this.introEl || !this.ctx) return;
+    if(!this.bedGain){
+      const g=this.ctx.createGain();
+      g.gain.value=1;
+      g.connect(this.master);
+      this.bedGain=g;
+    }
+    const hook=src=>{
+      const el=new Audio(src);
+      el.loop=true;
+      el.preload="auto";
+      el.crossOrigin="anonymous";
+      el.playsInline=true;
+      try{
+        const n=this.ctx.createMediaElementSource(el);
+        n.connect(this.bedGain);
+      }catch(e){}
+      return el;
+    };
+    this.introEl=hook("start_bed_v2.mp3");
+    this.heartEl=hook("heartbeat_bed.mp3");
+  },
+  playFile(kind, fade){
+    this.ensureFiles();
+    const el=kind==="intro"?this.introEl:this.heartEl;
+    if(!el) return false;
+    this.fileBed=kind;
+    if(kind==="intro") this.introOn=true;
+    if(this.bedGain){
+      const t=this.ctx.currentTime;
+      this.bedGain.gain.cancelScheduledValues(t);
+      this.bedGain.gain.setValueAtTime(0,t);
+      this.bedGain.gain.linearRampToValueAtTime(1,t+fade);
+    }
+    try{ el.currentTime=0; }catch(e){}
+    const p=el.play();
+    if(p&&p.catch) p.catch(()=>{});
+    if(kind==="intro" && this.heartEl){
+      const hp=this.heartEl.play();
+      if(hp&&hp.then) hp.then(()=>{ if(this.fileBed!=="heart"){ try{ this.heartEl.pause(); this.heartEl.currentTime=0; }catch(e){} } }).catch(()=>{});
+    }
+    el.onerror=()=>{
+      if(this.fileBed!==kind) return;
+      this.fileBed=null;
+      if(kind==="intro") this.synthIntroBed();
+      else this.synthBed(typeof state!=="undefined"&&state?state.i:0);
+    };
+    return true;
   },
   setMuted(m){
     this.muted=m;
@@ -212,6 +263,11 @@ const Music = {
     this.nodes=[];
     if(this.beat){clearInterval(this.beat); this.beat=null}
     this.introOn=false;
+    this.fileBed=null;
+    [this.introEl,this.heartEl].forEach(el=>{
+      if(!el) return;
+      try{ el.pause(); el.currentTime=0; }catch(e){}
+    });
   },
   tone(type, freq, t0, dur, peak, dest){
     const {c}=this.out();
@@ -224,8 +280,19 @@ const Music = {
     o.start(t0); o.stop(t0+dur+0.02);
     return o;
   },
-  bed(i){
+  synthIntroBed(){
     this.init(); this.stopBed();
+    if(this.playFile("intro", 1.4)) return;
+    this.synthIntroBed();
+  },
+  bed(i){
+    this.init();
+    if(this.fileBed==="heart" && this.heartEl && !this.heartEl.paused){ this.duck(1); return; }
+    this.stopBed();
+    if(this.playFile("heart", 0.7)) return;
+    this.synthBed(i);
+  },
+  synthBed(i){
     const {c,t}=this.out();
     const g=c.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(1,t+0.7);
     g.connect(this.master); this.bedGain=g;
