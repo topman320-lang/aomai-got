@@ -4,6 +4,7 @@ import {
   persist,
   presentAvatar,
 } from './db.js';
+import { presentPhotoFrames } from '../src/photo-frame.js';
 import { reviewAccess, reviewsForListing, trustSummary } from './trust.js';
 
 const DEMO_EMAIL = 'demo@aomai.got';
@@ -204,6 +205,7 @@ export function listingDto(l, db, publicBase, viewerId = '') {
     tone: l.tone,
     emoji: l.emoji,
     photos: absolutePhotos(l.photos || [], publicBase),
+    photoFrames: presentPhotoFrames(l.photoFrames, (l.photos || []).length),
     sold: Boolean(l.sold),
     removed: Boolean(l.removedAt),
     createdAt: l.createdAt,

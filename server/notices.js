@@ -44,15 +44,26 @@ export function presentNotice(row) {
   };
 }
 
+/** Offer notices for a cancelled bid are leftover system records, not 訊息. */
+export function noticeVisible(notice, offers) {
+  if (!notice) return false;
+  if (String(notice.kind || 'message') !== 'offer') return true;
+  const refId = String(notice.refId || '');
+  if (!refId) return true;
+  const offer = (Array.isArray(offers) ? offers : []).find((row) => row && row.id === refId);
+  if (!offer) return true;
+  return offer.status !== 'cancelled';
+}
+
 export function noticesFor(db, userId) {
   return (db?.notices || [])
-    .filter((n) => n.userId === userId)
+    .filter((n) => n.userId === userId && noticeVisible(n, db?.offers))
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
     .map(presentNotice);
 }
 
 export function unreadNotices(db, userId) {
-  return (db?.notices || []).filter((n) => n.userId === userId && !n.readAt).length;
+  return (db?.notices || []).filter((n) => n.userId === userId && !n.readAt && noticeVisible(n, db?.offers)).length;
 }
 
 export function markNoticesRead(db, userId, ids) {

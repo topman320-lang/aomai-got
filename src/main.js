@@ -1,4 +1,14 @@
 import { API_BASE, privacyUrl, supportUrl } from './api.js';
+import { messagesPane } from './messages-view.js';
+import {
+  concreteFrame,
+  coverBox,
+  listingShots,
+  photoFrameCss,
+  photoFrameStyle,
+  shiftFrame,
+  zoomFrame,
+} from './photo-frame.js';
 import { listingSharePayload } from './share.js';
 import {
   MAX_VOICE_SECONDS,
@@ -148,8 +158,21 @@ function trustHtml(l) {
     .join('');
 }
 
-function firstPhoto(l) {
-  return Array.isArray(l?.photos) && l.photos[0] ? l.photos[0] : '';
+function paintPhotoFrame(img, frame) {
+  if (!img) return;
+  const css = photoFrameCss(frame);
+  img.style.objectPosition = css.objectPosition;
+  img.style.transform = css.transform;
+  img.style.transformOrigin = css.transformOrigin;
+}
+
+function framedPhotoHtml(src, frame, { className = '', editable = false } = {}) {
+  const classes = [className, editable ? 'photo-frame-edit' : ''].filter(Boolean).join(' ');
+  const cls = classes ? ` class="${classes}"` : '';
+  const style = photoFrameStyle(frame);
+  const styleAttr = style ? ` style="${escapeAttr(style)}"` : '';
+  const label = editable ? ' aria-label="拖曳調整顯示範圍" draggable="false"' : '';
+  return `<img${cls} src="${escapeAttr(mediaSrc(src))}" alt=""${label}${styleAttr} />`;
 }
 
 function isPhotoAvatar(avatar) {
@@ -173,10 +196,8 @@ function mediaSrc(value) {
 }
 
 function thumbInner(l, { emojiClass = 'emoji' } = {}) {
-  const photo = firstPhoto(l);
-  if (photo) {
-    return `<img class="thumb-img" src="${escapeAttr(mediaSrc(photo))}" alt="" />`;
-  }
+  const shot = listingShots(l?.photos, l?.photoFrames)[0];
+  if (shot?.src) return framedPhotoHtml(shot.src, shot.frame, { className: 'thumb-img' });
   return `<span class="${emojiClass}">${l?.emoji || '📦'}</span>`;
 }
 
@@ -1357,10 +1378,10 @@ function openOfferSheet(l) {
   overlay.querySelector('[name="amount"]')?.focus();
 }
 
-function galleryHtml(l, photos) {
+function galleryHtml(l, shots) {
   const sold = isSold(l);
-  const index = photos.length ? Math.min(uiGallery.index, photos.length - 1) : 0;
-  if (!photos.length) {
+  const index = shots.length ? Math.min(uiGallery.index, shots.length - 1) : 0;
+  if (!shots.length) {
     return `<div class="gallery ${sold ? 'sold' : ''}">
       <div class="gallery-stage" style="background:${escapeAttr(l.tone || '')}">
         <span class="emoji">${l.emoji || '📦'}</span>
@@ -1368,26 +1389,26 @@ function galleryHtml(l, photos) {
       </div>
     </div>`;
   }
-  const src = mediaSrc(photos[index]);
+  const shot = shots[index];
   return `<div class="gallery ${sold ? 'sold' : ''}" id="gallery">
     <div class="gallery-stage" style="background:${escapeAttr(l.tone || '')}">
-      <img class="hero-img" src="${escapeAttr(src)}" alt="" />
+      ${framedPhotoHtml(shot.src, shot.frame, { className: 'hero-img' })}
       ${sold ? '<span class="sold-banner">已售</span>' : ''}
       ${
-        photos.length > 1
+        shots.length > 1
           ? `<button type="button" class="gallery-nav prev" data-photo-step="-1" aria-label="上一張">‹</button>
         <button type="button" class="gallery-nav next" data-photo-step="1" aria-label="下一張">›</button>
-        <span class="gallery-count">${index + 1} / ${photos.length}</span>`
+        <span class="gallery-count">${index + 1} / ${shots.length}</span>`
           : ''
       }
     </div>
     ${
-      photos.length > 1
+      shots.length > 1
         ? `<div class="gallery-thumbs">
-        ${photos
+        ${shots
           .map(
-            (p, i) =>
-              `<button type="button" class="gallery-thumb ${i === index ? 'on' : ''}" data-photo="${i}" aria-label="第 ${i + 1} 張"><img src="${escapeAttr(mediaSrc(p))}" alt="" /></button>`
+            (item, i) =>
+              `<button type="button" class="gallery-thumb ${i === index ? 'on' : ''}" data-photo="${i}" aria-label="第 ${i + 1} 張">${framedPhotoHtml(item.src, item.frame)}</button>`
           )
           .join('')}
       </div>`
@@ -1396,15 +1417,18 @@ function galleryHtml(l, photos) {
   </div>`;
 }
 
-function bindGallery(photos) {
-  if (photos.length < 2) return;
+function bindGallery(shots) {
+  if (shots.length < 2) return;
   const root = app.querySelector('#gallery');
   if (!root) return;
   const show = (next) => {
-    const len = photos.length;
+    const len = shots.length;
     uiGallery.index = ((next % len) + len) % len;
     const img = root.querySelector('.hero-img');
-    if (img) img.src = mediaSrc(photos[uiGallery.index]);
+    if (img) {
+      img.src = mediaSrc(shots[uiGallery.index].src);
+      paintPhotoFrame(img, shots[uiGallery.index].frame);
+    }
     const count = root.querySelector('.gallery-count');
     if (count) count.textContent = `${uiGallery.index + 1} / ${len}`;
     root.querySelectorAll('.gallery-thumb').forEach((btn, i) => {
@@ -2045,7 +2069,7 @@ async function renderDetail(id, token = nextView()) {
   const sold = isSold(l);
   const isSeller = isLoggedIn() && l.sellerId === state.me.id;
   const wanted = state.wants.includes(l.id);
-  const photos = Array.isArray(l.photos) ? l.photos.filter(Boolean) : [];
+  const shots = listingShots(l.photos, l.photoFrames);
   const offers = getOffersForListing(l.id);
   const myOffer = isLoggedIn() ? offers.find((o) => o.fromId === state.me.id) : null;
   const thread = myOffer?.threadId ? { id: myOffer.threadId } : getThreadByListing(l.id);
@@ -2148,7 +2172,7 @@ async function renderDetail(id, token = nextView()) {
       <h1>商品詳情</h1>
       <button class="topbar-share" type="button" id="share-listing">分享</button>
     </header>
-    ${galleryHtml(l, photos)}
+    ${galleryHtml(l, shots)}
     <section class="price-block">
       <div class="price-row">
         ${priceHtml(l.price, sold)}
@@ -2195,7 +2219,7 @@ async function renderDetail(id, token = nextView()) {
     </div>`;
 
   app.innerHTML = shell(content, { noTab: true, screenClass: 'docked' });
-  bindGallery(photos);
+  bindGallery(shots);
   bindListingShare(app, l);
   bindOfferStatus(app, { onDone: () => renderDetail(id) });
   app.querySelector('#go-bargain')?.addEventListener('click', () => openOfferSheet(l));
@@ -2382,8 +2406,9 @@ async function renderPost(token = nextView(), listingId = '') {
       return;
     }
   }
-  const seeded = Array.isArray(existing?.photos) ? existing.photos.filter(Boolean).slice(0, MAX_LISTING_PHOTOS) : [];
-  const photos = Array.from({ length: MAX_LISTING_PHOTOS }, (_, i) => seeded[i] || '');
+  const seededShots = listingShots(existing?.photos, existing?.photoFrames).slice(0, MAX_LISTING_PHOTOS);
+  const photos = Array.from({ length: MAX_LISTING_PHOTOS }, (_, i) => seededShots[i]?.src || '');
+  const frames = Array.from({ length: MAX_LISTING_PHOTOS }, (_, i) => seededShots[i]?.frame || null);
   let photoBusy = false;
   let step = 0;
   let hint = null;
@@ -2415,9 +2440,12 @@ async function renderPost(token = nextView(), listingId = '') {
         }" />`;
         if (src) {
           return `
-            <div class="photo-slot filled has-img">
-              <img src="${escapeAttr(mediaSrc(src))}" alt="" />
-              <label class="photo-replace">${albumInput}</label>
+            <div class="photo-slot filled has-img" data-frame-slot="${i}">
+              ${framedPhotoHtml(src, frames[i], { editable: true })}
+              <label class="photo-swap">
+                <span class="photo-add-label" aria-hidden="true">換圖</span>
+                ${albumInput}
+              </label>
               <button type="button" class="photo-clear" data-clear="${i}" aria-label="移除照片">×</button>
             </div>`;
         }
@@ -2452,19 +2480,37 @@ async function renderPost(token = nextView(), listingId = '') {
     const hintText = app.querySelector('#photo-hint-text');
     if (hintText) {
       const count = photos.filter(Boolean).length;
+      const frameNote = count > 0 ? ' 拖曳相片對準主體，兩指可以放大。' : '';
       hintText.textContent =
-        count === 0
+        (count === 0
           ? `至少一張相片，最多 ${MAX_LISTING_PHOTOS} 張。建議多角度：正面、細節、瑕疵。相簿可多選，拍照仍可用。`
           : count >= MAX_LISTING_PHOTOS
             ? `已有 ${count} 張，已到上限。`
             : count === 1
               ? '已有 1 張。再加側面或瑕疵會更清楚，仍然可以繼續。'
-              : `已有 ${count} 張。多角度會幫買家睇清楚。`;
+              : `已有 ${count} 張。多角度會幫買家睇清楚。`) + frameNote;
     }
+  };
+
+  const pointerSpan = (points) => {
+    const list = [...points.values()];
+    if (list.length < 2) return 0;
+    return Math.hypot(list[0].x - list[1].x, list[0].y - list[1].y);
   };
 
   const bindPhotos = () => {
     const photoField = app.querySelector('#photo-field');
+    let gesture = null;
+
+    const slotIndexFrom = (target) => {
+      const slot = target?.closest?.('[data-frame-slot]');
+      if (!slot || !photoField?.contains(slot)) return -1;
+      const idx = Number(slot.getAttribute('data-frame-slot'));
+      return Number.isInteger(idx) ? idx : -1;
+    };
+
+    const frameImage = (idx) => photoField?.querySelector(`[data-frame-slot="${idx}"] img`) || null;
+
     photoField?.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-clear]');
       if (!btn || !photoField.contains(btn)) return;
@@ -2473,8 +2519,69 @@ async function renderPost(token = nextView(), listingId = '') {
       const idx = Number(btn.getAttribute('data-clear'));
       if (!Number.isInteger(idx) || idx < 0 || idx >= photos.length) return;
       photos[idx] = '';
+      frames[idx] = null;
       paintSlots();
     });
+
+    photoField?.addEventListener('pointerdown', (e) => {
+      if (photoBusy) return;
+      if (e.button !== undefined && e.button !== 0) return;
+      if (e.target.closest('.photo-clear, .photo-swap, .photo-file-input, .photo-camera')) return;
+      const idx = slotIndexFrom(e.target);
+      if (idx < 0 || !photos[idx]) return;
+      const slot = e.target.closest('[data-frame-slot]');
+      try {
+        slot?.setPointerCapture?.(e.pointerId);
+      } catch {
+        /* A failed capture should still let the drag update the frame. */
+      }
+      if (!gesture || gesture.idx !== idx) gesture = { idx, pointers: new Map(), pinch: 0 };
+      gesture.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (gesture.pointers.size >= 2) gesture.pinch = pointerSpan(gesture.pointers);
+    });
+
+    photoField?.addEventListener('pointermove', (e) => {
+      if (!gesture?.pointers.has(e.pointerId)) return;
+      const prev = gesture.pointers.get(e.pointerId);
+      gesture.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const idx = gesture.idx;
+      const img = frameImage(idx);
+      if (!img) return;
+      if (gesture.pointers.size >= 2) {
+        const dist = pointerSpan(gesture.pointers);
+        if (gesture.pinch > 0 && dist > 0) {
+          frames[idx] = zoomFrame(frames[idx], dist / gesture.pinch);
+          gesture.pinch = dist;
+          paintPhotoFrame(img, frames[idx]);
+        }
+        return;
+      }
+      const zoom = concreteFrame(frames[idx]).z;
+      const box = coverBox(img.clientWidth, img.clientHeight, img.naturalWidth, img.naturalHeight, zoom);
+      frames[idx] = shiftFrame(frames[idx], e.clientX - prev.x, e.clientY - prev.y, box);
+      paintPhotoFrame(img, frames[idx]);
+    });
+
+    const endPointer = (e) => {
+      if (!gesture) return;
+      gesture.pointers.delete(e.pointerId);
+      if (gesture.pointers.size < 2) gesture.pinch = 0;
+      if (gesture.pointers.size === 0) gesture = null;
+    };
+    photoField?.addEventListener('pointerup', endPointer);
+    photoField?.addEventListener('pointercancel', endPointer);
+    photoField?.addEventListener(
+      'wheel',
+      (e) => {
+        const idx = slotIndexFrom(e.target);
+        if (idx < 0 || !photos[idx]) return;
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
+        frames[idx] = zoomFrame(frames[idx], factor);
+        paintPhotoFrame(frameImage(idx), frames[idx]);
+      },
+      { passive: false }
+    );
 
     photoField?.addEventListener('change', async (e) => {
       const input = e.target.closest?.('input[type="file"]');
@@ -2508,6 +2615,7 @@ async function renderPost(token = nextView(), listingId = '') {
         for (let i = 0; i < targets.length; i += 1) {
           try {
             photos[targets[i]] = await compressImageFile(chosen[i]);
+            frames[targets[i]] = null;
             added += 1;
           } catch (err) {
             if (err?.message === 'TOO_LARGE') toast('圖片太大，請改選一張');
@@ -2648,6 +2756,7 @@ async function renderPost(token = nextView(), listingId = '') {
     const btn = app.querySelector('#wiz-next');
     if (btn) btn.disabled = true;
     try {
+      const shots = listingShots(photos, frames);
       const payload = {
         title: draft.title.trim(),
         price: Number(draft.price),
@@ -2657,7 +2766,8 @@ async function renderPost(token = nextView(), listingId = '') {
         description: draft.description.trim(),
         handover: draft.handover || HANDOVERS[0],
         negotiable: draft.negotiable !== false,
-        photos: photos.filter(Boolean),
+        photos: shots.map((shot) => shot.src),
+        photoFrames: shots.map((shot) => shot.frame),
       };
       const listing = editing ? await updateListing(listingId, payload) : await addListing(payload);
       go(`detail/${listing.id}`);
@@ -2770,10 +2880,10 @@ async function renderPost(token = nextView(), listingId = '') {
           <p class="photo-hint">參考價只是同類刊登的大概，由你決定。不是估價或鑑定。</p>
         </div>`;
     } else {
-      const filled = photos.filter(Boolean);
-      const thumbs = filled.length
-        ? `<div class="photo-row summary-photos">${filled
-            .map((src) => `<div class="photo-slot filled has-img"><img src="${escapeAttr(mediaSrc(src))}" alt="" /></div>`)
+      const summaryShots = listingShots(photos, frames);
+      const thumbs = summaryShots.length
+        ? `<div class="photo-row summary-photos">${summaryShots
+            .map((shot) => `<div class="photo-slot filled has-img">${framedPhotoHtml(shot.src, shot.frame)}</div>`)
             .join('')}</div>`
         : '<p class="photo-hint">未加相片。請返回加上至少一張。</p>';
       fields = `
@@ -2900,11 +3010,17 @@ async function renderMessages(token = nextView()) {
         `<button class="notice-strip" type="button" data-notice="${escapeAttr(n.id)}" data-href="${escapeAttr(n.href || '')}">${escapeHtml(n.body)}</button>`
     )
     .join('');
-  const body = error && !threads.length
-    ? listErrorHtml('訊息載入失敗')
-    : threads.length
-      ? `${error ? listRetryBar() : ''}${noticeStrip}${list}`
-      : `${noticeStrip}<div class="empty">還沒有訊息<br/>去議價一筆商品吧</div>`;
+  const pane = messagesPane({
+    threadCount: threads.length,
+    noticeCount: unreadNotices.length,
+    failed: Boolean(error),
+  });
+  const body =
+    pane === 'error'
+      ? listErrorHtml('訊息載入失敗')
+      : pane === 'empty'
+        ? '<div class="empty">還沒有訊息<br/>去議價一筆商品吧</div>'
+        : `${error ? listRetryBar() : ''}${noticeStrip}${list}`;
   app.innerHTML = shell(`${header}${scamTipHtml('messages-tip')}${body}`, { tab: 'messages' });
   app.querySelectorAll('[data-notice]').forEach((btn) => {
     btn.addEventListener('click', async () => {
