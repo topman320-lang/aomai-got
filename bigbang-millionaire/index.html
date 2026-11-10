@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>百萬富翁・BIGBANG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --gold:#e6c35c;--gold2:#f3e0a6;--orange:#e39412;--green:#13c45a;--red:#e03a32;--cyan:#7ecfff;--text:#f4edd4;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#020308;color:var(--text);font-family:"Noto Sans TC",system-ui,sans-serif;overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+.hidden{display:none !important}
+#floor{position:fixed;inset:0;width:100%;height:100%;z-index:0}
+#vignette{position:fixed;inset:0;z-index:1;pointer-events:none;background:radial-gradient(circle at 50% 38%,transparent 18%,#000 86%)}
+#app{position:relative;z-index:2;height:100%;height:100dvh;display:flex;flex-direction:column;padding:calc(8px + env(safe-area-inset-top)) 12px env(safe-area-inset-bottom)}
+.screen{flex:1;display:flex;flex-direction:column;min-height:0}
+.center{align-items:center;justify-content:center;text-align:center}
+
+.badge{width:min(280px,70vw);height:min(280px,70vw);border-radius:50%;border:3px solid var(--gold);box-shadow:0 0 40px #e6c35c66, inset 0 0 40px #1a3aff33;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 35%,#1a2a80,#050814 70%);margin:0 auto 18px}
+.logo{font-family:"Noto Serif TC",serif;font-weight:900;font-size:clamp(28px,8vw,46px);letter-spacing:.18em;color:var(--gold);text-shadow:0 0 18px #e6c35c99;margin:0}
+.sub{color:var(--gold2);letter-spacing:.42em;font-size:12px;margin:8px 0 0}
+.rules{max-width:440px;text-align:left;font-size:13px;line-height:1.75;color:#d8d0b0;margin:0 auto 22px;background:#050a18cc;border:1px solid #e6c35c44;padding:14px 16px}
+.btn{background:linear-gradient(#f0d78a,#c9a227);color:#2a1a00;border:0;border-radius:999px;padding:13px 34px;font-weight:800;font-size:17px;box-shadow:0 0 24px #e6c35c55;letter-spacing:.08em}
+.btn:active{transform:scale(.98)}
+.btn.ghost{background:transparent;color:var(--gold);border:1px solid var(--gold);box-shadow:none;margin-top:10px}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0 8px}
+.lifelines{display:flex;gap:10px;margin:0 auto}
+.life{width:68px;height:42px;border-radius:24px;border:2px solid var(--cyan);background:radial-gradient(circle at 50% 30%,#2450a8,#071028 72%);color:#dff6ff;box-shadow:0 0 14px #4ab0ff77, inset 0 0 10px #6ec8ff33;padding:0;position:relative}
+.life svg{width:34px;height:22px;display:block;margin:0 auto}
+.life .lab{font-size:11px;font-weight:900;letter-spacing:.02em}
+.life:disabled,.life.used{border-color:#c33;background:radial-gradient(circle at 50% 30%,#401010,#140000);box-shadow:none;opacity:.85}
+.life.used::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff3b3b;font-size:30px;font-weight:900;text-shadow:0 0 8px #000}
+.cash{font-family:"Noto Serif TC",serif;color:var(--gold);font-weight:700;font-size:14px;min-width:96px;text-align:right}
+.iconbtn{width:36px;height:36px;border-radius:50%;border:1px solid #6ec8ff88;background:#071028;color:#cfefff;font-size:16px}
+
+.play{flex:1;display:grid;grid-template-columns:1fr;gap:10px;min-height:0;position:relative}
+@media(min-width:900px){
+  .play{grid-template-columns:1fr 230px}
+  .ladder-toggle{display:none !important}
+  #ladder{display:flex !important}
+}
+#ladder{display:none;flex-direction:column-reverse;justify-content:center;gap:2px;padding:10px 8px;background:linear-gradient(#0a1630cc,#050a18ee);border:1px solid #1a3a80;overflow:auto}
+#ladder.open{display:flex;position:absolute;right:0;top:0;bottom:0;width:210px;z-index:6}
+.rung{display:flex;justify-content:space-between;padding:3px 10px;font-size:12px;font-weight:700;color:#d4a017;letter-spacing:.04em}
+.rung.safe{color:#fff}
+.rung.now{background:var(--orange);color:#1a1000}
+.rung.won{color:var(--gold)}
+.ladder-toggle{background:transparent;border:1px solid var(--gold);color:var(--gold);border-radius:8px;padding:6px 10px;font-size:12px}
+
+.stage{display:flex;flex-direction:column;justify-content:flex-end;min-height:0}
+.host{min-height:40px;font-size:14px;color:var(--gold2);text-align:center;margin:0 10px 8px;text-shadow:0 0 8px #000}
+.qmeta{display:flex;justify-content:space-between;font-size:11px;color:#9ab;padding:0 8%;letter-spacing:.1em}
+.qbox,.ans{
+  background:linear-gradient(#101a48,#070d24 48%,#101a48);
+  border:1.5px solid var(--gold);
+  box-shadow:0 0 0 1px #071040, 0 0 18px #1a4aff33, inset 0 0 22px #000a;
+  color:var(--text);
+}
+.qbox{
+  clip-path:polygon(1.2% 50%, 3.6% 0, 96.4% 0, 98.8% 50%, 96.4% 100%, 3.6% 100%);
+  padding:16px 7%;text-align:center;margin:4px 0 12px;font-size:clamp(16px,3.5vw,23px);font-weight:700;line-height:1.45
+}
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+@media(max-width:420px){.answers{grid-template-columns:1fr}}
+.ans{clip-path:polygon(3% 50%, 8% 0, 92% 0, 97% 50%, 92% 100%, 8% 100%);padding:11px 16px 11px 20px;text-align:left;font-size:14px;font-weight:500}
+.ans .k{color:var(--gold);font-weight:800;margin-right:7px}
+.ans:hover:not(:disabled){filter:brightness(1.1)}
+.ans.picked{background:linear-gradient(#a8620c,#e39412);border-color:#ffe08a;color:#fff}
+.ans.correct{background:linear-gradient(#0a6a28,#13c45a);border-color:#b9ffd0;color:#fff}
+.ans.wrong{background:linear-gradient(#6a1010,#e03a32);border-color:#ffb4b0;color:#fff}
+.ans.gone{visibility:hidden}
+.actions{display:flex;justify-content:center;gap:10px;padding:10px 0 6px}
+
+.modal{position:fixed;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:20;padding:20px}
+.card{background:linear-gradient(#121a3a,#070b18);border:1px solid var(--gold);padding:24px;max-width:420px;width:100%;text-align:center;box-shadow:0 0 40px #e6c35c33}
+.card h2{font-family:"Noto Serif TC",serif;color:var(--gold);margin:0 0 10px;letter-spacing:.12em}
+.card p{line-height:1.65;margin:0 0 16px;color:#e8e0c8}
+.bars{text-align:left;margin:12px 0 18px}
+.bar-row{display:grid;grid-template-columns:24px 1fr 40px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.bar{height:12px;background:#1a2040;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#7ecfff,var(--gold));transition:width 1s ease}
+body.lock-dim #floor{filter:brightness(.7)}
+</style>
+</head>
+<body>
+<canvas id="floor"></canvas>
+<div id="vignette"></div>
+<div id="app">
+  <section id="intro" class="screen center">
+    <div class="badge">
+      <h1 class="logo">百萬富翁</h1>
+      <div class="sub">BIGBANG</div>
+    </div>
+    <div class="rules">
+      畫面同節奏參考正版節目嘅演播廳：中央熱座光環、菱形題板、橙色鎖定、綠色正確、紅色錯誤，右側獎金樹，上方三個錦囊。<br>
+      音樂係原創合成，模擬節目由淺入深嘅心跳同張力，唔會使用受版權保護嘅原版配樂。<br>
+      十五條粵語題，全部圍繞 BIGBANG 同各成員：出道歷史、代表作、專輯，以及 G-Dragon、太陽、T.O.P、大聲、勝利。安全線喺第 5 同第 10 題。
+    </div>
+    <button class="btn" id="startBtn">開始挑戰</button>
+  </section>
+
+  <section id="game" class="screen hidden">
+    <div class="top">
+      <button class="iconbtn" id="muteBtn" title="靜音">♪</button>
+      <div class="lifelines">
+        <button class="life" id="l50" title="50:50"><span class="lab">50:50</span></button>
+        <button class="life" id="lphone" title="打電話問朋友">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#dff6ff" stroke-width="2"><path d="M7 3h4l1 5-2 1a12 12 0 0 0 5 5l1-2 5 1v4a2 2 0 0 1-2 2A16 16 0 0 1 5 7a2 2 0 0 1 2-2z"/></svg>
+        </button>
+        <button class="life" id="laud" title="問現場觀眾">
+          <svg viewBox="0 0 24 24" fill="#dff6ff" stroke="none"><circle cx="7" cy="8" r="2.2"/><circle cx="12" cy="7" r="2.4"/><circle cx="17" cy="8" r="2.2"/><path d="M3.5 18c.5-3 2.2-4.5 3.5-4.5S10 15 10.2 18H3.5zm4.6 0c.4-3.4 2.4-5.2 3.9-5.2s3.5 1.8 3.9 5.2H8.1zm5.7 0c.2-3 2-4.5 3.5-4.5s3 1.5 3.5 4.5H13.8z"/></svg>
+        </button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="cash" id="cashNow">MOP$ 0</div>
+        <button class="ladder-toggle" id="ladderBtn">獎金表</button>
+      </div>
+    </div>
+    <div class="play">
+      <div class="stage">
+        <div class="host" id="host">歡迎參加「百萬富翁・BIGBANG」。</div>
+        <div class="qmeta"><span id="qNum">第 1 題</span><span id="qCat">地標</span></div>
+        <div class="qbox" id="qText"></div>
+        <div class="answers" id="answers"></div>
+        <div class="actions">
+          <button class="btn ghost" id="walkBtn">攞走獎金</button>
+        </div>
+      </div>
+      <ol id="ladder"></ol>
+    </div>
+  </section>
+</div>
+<div id="modal" class="modal hidden"></div>
+<script>
+const BANK = [
+  // easy
+  {d:1,cat:"組合",q:"BIGBANG 係邊一年出道？",a:["2004","2006","2008","2012"],c:1},
+  {d:1,cat:"組合",q:"BIGBANG 出道時所屬嘅經紀公司係邊間？",a:["SM Entertainment","JYP Entertainment","YG Entertainment","HYBE"],c:2},
+  {d:1,cat:"組合",q:"BIGBANG 官方歌迷名係咩？",a:["BLINK","V.I.P","ARMY","ONCE"],c:1},
+  {d:1,cat:"組合",q:"BIGBANG 2006 年出道時，團體有幾位成員？",a:["三位","四位","五位","七位"],c:2},
+  {d:1,cat:"G-Dragon",q:"G-Dragon 喺 BIGBANG 入面最常被認定嘅位置係？",a:["忙內同主唱","隊長同主 Rapper","只負責跳舞","經理人"],c:1},
+  {d:1,cat:"G-Dragon",q:"G-Dragon 嘅本名係邊個？",a:["權志龍","東永裴","崔勝鉉","姜大聲"],c:0},
+  {d:1,cat:"太陽",q:"太陽（Taeyang）嘅舞台名，字面意思係咩？",a:["月亮","星星","太陽","大海"],c:2},
+  {d:1,cat:"太陽",q:"太陽嘅本名係邊個？",a:["權志龍","東永裴","崔勝鉉","李昇炫"],c:1},
+  {d:1,cat:"T.O.P",q:"T.O.P 嘅本名係邊個？",a:["權志龍","東永裴","崔勝鉉","姜大聲"],c:2},
+  {d:1,cat:"大聲",q:"大聲（Daesung）嘅本名係邊個？",a:["姜大聲","崔勝鉉","李昇炫","張賢勝"],c:0},
+  {d:1,cat:"勝利",q:"勝利（Seungri）喺出道五人入面，通常被稱為咩？",a:["隊長","最年長","忙內（最細）","主製作人"],c:2},
+  {d:1,cat:"歌曲",q:"2007 年令 BIGBANG 一舉成名、中文常叫「謊言」嘅歌係邊首？",a:["Fantastic Baby","Lies（거짓말）","BANG BANG BANG","Still Life"],c:1},
+  {d:1,cat:"歌曲",q:"2012 年迷你專輯《ALIVE》入面，演唱會幾乎必唱嘅電音代表作係邊首？",a:["Wedding Dress","Haru Haru","Fantastic Baby","Flower Road"],c:2},
+  // mid
+  {d:2,cat:"組合",q:"2006 年 8 月 19 日，BIGBANG 正式出道表演係喺邊個場地嘅 YG Family 演唱會？",a:["東京巨蛋","首爾奧林匹克體操競技場","高陽體育場","巴黎法蘭西體育場"],c:1},
+  {d:2,cat:"成員",q:"出道五人入面，年紀最大嘅係邊位？",a:["G-Dragon","太陽","T.O.P","大聲"],c:2},
+  {d:2,cat:"歌曲",q:"〈謊言〉主要作詞作曲嘅成員係邊個？",a:["太陽","大聲","G-Dragon","勝利"],c:2},
+  {d:2,cat:"歌曲",q:"〈最後的問候〉（Last Farewell）推出後，坊間常講佢喺韓國音源榜連莊幾多週冠軍？",a:["三週","五週","八週","十二週"],c:2},
+  {d:2,cat:"專輯",q:"2015 年 MADE Series 按月推出 M、A、D、E，〈BANG BANG BANG〉係收錄喺邊張？",a:["M","A","D","E"],c:1},
+  {d:2,cat:"專輯",q:"〈LOSER〉同 〈BAE BAE〉係 MADE Series 邊張嘅雙主打？",a:["M","A","D","E"],c:0},
+  {d:2,cat:"太陽",q:"太陽經典獨唱曲，歌名同婚紗有關嘅係邊首？",a:["Eyes, Nose, Lips","Wedding Dress","Ringa Linga","Only Look at Me"],c:1},
+  {d:2,cat:"G-Dragon",q:"G-Dragon 2009 年第一張個人正規專輯叫咩名？",a:["Heartbreaker","Coup d'Etat","Kwon Ji Yong","Übermensch"],c:0},
+  {d:2,cat:"T.O.P",q:"T.O.P 出道前做地下饒舌時，曾經用過邊個藝名？",a:["Tempo","Zutter","VIP","Gwisun"],c:0},
+  {d:2,cat:"大聲",q:"大聲廣為人知、帶喜劇風格嘅獨唱曲之一係邊首？",a:["Look at Me, Gwisun（望下我呀，貴順）","Wedding Dress","Zutter","Bae Bae"],c:0},
+  {d:2,cat:"組合",q:"YG 同團經常把 BIGBANG 官方應援棒叫做咩？",a:["輕棒","Bang Bong（棒棒）","阿米棒","螢光棒 X"],c:1},
+  {d:2,cat:"歌曲",q:"2018 年成員陸續入伍前後發行、常被當成送別歌迷嘅單曲係邊首？",a:["Flower Road（꽃길／花路）","Still Life","BiiiG","Last Dance"],c:0},
+  {d:2,cat:"歌曲",q:"2022 年 4 月 BIGBANG 以四人體制回歸嘅單曲，韓文名係「春夏秋冬」，英文名係？",a:["Always","Still Life","Last Dance","Home Sweet Home"],c:1},
+  {d:2,cat:"太陽",q:"太陽獨唱代表作〈Eyes, Nose, Lips〉，中文通常點譯？",a:["手腳心","眼鼻嘴","口耳目","頭肩腳"],c:1},
+  {d:2,cat:"歌曲",q:"中文常叫「一天一天」嘅 BIGBANG 名曲，原文歌名係？",a:["Haru Haru（하루하루）","If You","Blue","Bad Boy"],c:0},
+  // hard
+  {d:3,cat:"勝利",q:"勝利大約喺幾時宣布退出演藝圈、離開 BIGBANG？",a:["2015 年 8 月","2019 年 3 月","2022 年 4 月","2023 年 5 月"],c:1},
+  {d:3,cat:"T.O.P",q:"T.O.P 大約喺幾時正式離開 BIGBANG？",a:["2019 年 3 月","2020 年 12 月","2023 年 5 月","2026 年 8 月"],c:2},
+  {d:3,cat:"組合",q:"到 2026 年，BIGBANG 三人體制包含邊三位成員？",a:["G-Dragon、太陽、T.O.P","G-Dragon、太陽、大聲","太陽、大聲、勝利","G-Dragon、T.O.P、大聲"],c:1},
+  {d:3,cat:"組合",q:"出道選拔本來有六人，最後冇一齊出道、其後加入 BEAST（後改名 Highlight）嘅係邊個？",a:["勝利","張賢勝","大聲","太陽"],c:1},
+  {d:3,cat:"成員",q:"G-Dragon 同太陽出道前，原本計劃以邊個雙人組合名出道？",a:["GDYB","VIP","TEMPO","YG Family"],c:0},
+  {d:3,cat:"專輯",q:"2016 年完整專輯《MADE》新加嘅三首歌，除咗 Fxxk It 同 Last Dance，仲有邊首？",a:["Girlfriend","Sober","If You","Monster"],c:0},
+  {d:3,cat:"歌曲",q:"2026 年 8 月 19 日，BIGBANG 出道 20 週年發行嘅新歌叫咩名？",a:["Still Life","BiiiG","Home Sweet Home","COSMOS"],c:1},
+  {d:3,cat:"巡演",q:"2026 至 2027 年 BIGBANG 世界巡迴演唱會嘅名稱係邊個？",a:["ALIVE GALAXY","MADE TOUR","XX : COSMOS","The Real"],c:2},
+  {d:3,cat:"歌曲",q:"〈謊言〉本來係 G-Dragon 為個人曲準備，後來邊位提議改做團體曲？",a:["太陽","泰迪 Teddy","梁玄錫（Yang Hyun-suk）","勝利"],c:2},
+  {d:3,cat:"成員",q:"G-Dragon 同 T.O.P 喺 MADE Series《E》推出嘅雙人曲係邊首？",a:["Zutter（쩔어）","We Like 2 Party","Bae Bae","Bad Boy"],c:0},
+  {d:3,cat:"G-Dragon",q:"G-Dragon 嘅生日係邊日？",a:["5 月 18 日","8 月 18 日","11 月 4 日","4 月 26 日"],c:1},
+  {d:3,cat:"太陽",q:"太陽嘅生日係邊日？",a:["5 月 18 日","8 月 18 日","11 月 4 日","12 月 12 日"],c:0}
+];
+
+const PRIZES = [100,200,300,500,1000,2000,4000,8000,16000,32000,64000,125000,250000,500000,1000000];
+const SAFE = {4:1000, 9:32000};
+const LETTERS = ["A","B","C","D"];
+const $ = id => document.getElementById(id);
+const fmt = n => "MOP$ " + n.toLocaleString("en-US");
+let state = null;
+
+const Music = {
+  ctx:null, master:null, muted:false, bedGain:null, nodes:[], beat:null,
+  init(){
+    if(!this.ctx){
+      this.ctx = new (window.AudioContext||window.webkitAudioContext)();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 0.42;
+      this.master.connect(this.ctx.destination);
+    }
+    if(this.ctx.state==="suspended") this.ctx.resume();
+  },
+  setMuted(m){
+    this.muted=m;
+    if(this.master) this.master.gain.value = m?0:0.42;
+    $("muteBtn").textContent = m?"🔇":"♪";
+  },
+  out(){ this.init(); return {c:this.ctx, m:this.master, t:this.ctx.currentTime}; },
+  stopBed(){
+    this.nodes.forEach(n=>{try{n.stop()}catch(e){}});
+    this.nodes=[];
+    if(this.beat){clearInterval(this.beat); this.beat=null}
+  },
+  tone(type, freq, t0, dur, peak, dest){
+    const {c}=this.out();
+    const o=c.createOscillator(), g=c.createGain();
+    o.type=type; o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(peak,0.0002), t0+0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+    o.connect(g); g.connect(dest||this.master);
+    o.start(t0); o.stop(t0+dur+0.02);
+    return o;
+  },
+  bed(i){
+    this.init(); this.stopBed();
+    const {c,t}=this.out();
+    const g=c.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(1,t+0.7);
+    g.connect(this.master); this.bedGain=g;
+    const f0 = i<5? 49 : i<10? 41 : i<14? 34 : 27.5;
+    [[f0,"sine",0.15],[f0*2,"sine",0.045],[i>=10?f0*1.498:f0*1.5,"triangle", i>=10?0.04:0.025]].forEach(([f,ty,vol])=>{
+      const o=c.createOscillator(), gg=c.createGain();
+      o.type=ty; o.frequency.value=f; gg.gain.value=vol;
+      o.connect(gg); gg.connect(g); o.start(); this.nodes.push(o);
+    });
+    const period = i<5? 1380 : i<10? 1080 : i<14? 900 : 780;
+    const vol = 0.22 + i*0.012;
+    const boom=()=>{
+      if(!this.ctx||!this.bedGain) return;
+      const now=this.ctx.currentTime;
+      const punch=(delay,freq,v,d)=>{
+        const o=this.ctx.createOscillator(), gg=this.ctx.createGain();
+        o.type="sine";
+        o.frequency.setValueAtTime(freq, now+delay);
+        o.frequency.exponentialRampToValueAtTime(freq*0.45, now+delay+d);
+        gg.gain.setValueAtTime(v, now+delay);
+        gg.gain.exponentialRampToValueAtTime(0.0001, now+delay+d);
+        o.connect(gg); gg.connect(this.bedGain);
+        o.start(now+delay); o.stop(now+delay+d+0.03);
+      };
+      punch(0, 68, vol, 0.26);
+      punch(0.17, 54, vol*0.72, 0.3);
+    };
+    boom(); this.beat=setInterval(boom, period);
+  },
+  duck(to){
+    if(!this.bedGain) return;
+    const t=this.ctx.currentTime;
+    this.bedGain.gain.cancelScheduledValues(t);
+    this.bedGain.gain.linearRampToValueAtTime(to, t+0.25);
+  },
+  intro(){
+    const {t}=this.out();
+    this.tone("sine", 65, t, 1.6, 0.18);
+    this.tone("triangle", 98, t+0.15, 1.4, 0.07);
+    this.tone("sine", 196, t+0.55, 0.8, 0.05);
+  },
+  letsPlay(){
+    const {t}=this.out();
+    [82,123,164,246].forEach((f,i)=>this.tone("triangle", f, t+i*0.11, 0.5, 0.09));
+    this.tone("sine", 49, t, 1.1, 0.16);
+  },
+  lock(){
+    const {t}=this.out();
+    this.duck(0.18);
+    this.tone("sine", 43, t, 1.2, 0.14);
+    this.tone("triangle", 86, t+0.05, 1.1, 0.06);
+    this.tone("sine", 129, t+0.2, 0.9, 0.04);
+  },
+  correct(){
+    this.stopBed();
+    const {t}=this.out();
+    [196,247,294,392].forEach((f,i)=>this.tone("triangle", f, t+i*0.08, 0.55, 0.09));
+    this.tone("sine", 98, t, 0.9, 0.1);
+  },
+  wrong(){
+    this.stopBed();
+    const {t}=this.out();
+    this.tone("sawtooth", 110, t, 0.7, 0.08);
+    this.tone("sine", 73, t, 0.9, 0.14);
+    this.tone("triangle", 61, t+0.12, 0.8, 0.1);
+  },
+  win(){
+    this.stopBed();
+    const {t}=this.out();
+    [147,196,220,294,392].forEach((f,i)=>this.tone("triangle", f, t+i*0.13, 0.7, 0.1));
+    this.tone("sine", 73, t, 2, 0.14);
+  },
+  fifty(){
+    const {c,t,m}=this.out();
+    const o=c.createOscillator(), f=c.createBiquadFilter(), g=c.createGain();
+    o.type="sawtooth"; o.frequency.setValueAtTime(900,t); o.frequency.exponentialRampToValueAtTime(180,t+0.35);
+    f.type="lowpass"; f.frequency.value=1800; g.gain.setValueAtTime(0.08,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.4);
+    o.connect(f); f.connect(g); g.connect(m); o.start(t); o.stop(t+0.42);
+  },
+  phone(){
+    const {t}=this.out();
+    [0,0.4,1.0,1.4].forEach(dt=>{
+      this.tone("sine", 480, t+dt, 0.22, 0.08);
+      this.tone("sine", 440, t+dt, 0.22, 0.08);
+    });
+  },
+  audience(){
+    const {c,t,m}=this.out();
+    const len=c.sampleRate*1.4, buf=c.createBuffer(1,len,c.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*0.4;
+    const src=c.createBufferSource(); src.buffer=buf;
+    const f=c.createBiquadFilter(); f.type="bandpass"; f.frequency.value=1200; f.Q.value=0.7;
+    const g=c.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.12,t+0.15); g.gain.exponentialRampToValueAtTime(0.0001,t+1.3);
+    src.connect(f); f.connect(g); g.connect(m); src.start(t); src.stop(t+1.4);
+  }
+};
+
+(function floor(){
+  const cv=$("floor"), ctx=cv.getContext("2d");
+  function resize(){ cv.width=innerWidth; cv.height=innerHeight; }
+  addEventListener("resize", resize); resize();
+  function frame(ts){
+    const w=cv.width,h=cv.height,cx=w/2,cy=h*0.38, pulse=0.45+0.55*Math.sin(ts/700);
+    const rad=Math.max(w,h)*0.9;
+    ctx.fillStyle="#020308"; ctx.fillRect(0,0,w,h);
+    const g=ctx.createRadialGradient(cx,cy,8,cx,cy,rad);
+    g.addColorStop(0, `rgba(36,80,210,${0.5+0.16*pulse})`);
+    g.addColorStop(0.16, "rgba(10,26,90,0.55)");
+    g.addColorStop(1, "#020308");
+    ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+    ctx.save(); ctx.translate(cx,cy);
+    ctx.lineWidth=1;
+    for(let i=0;i<36;i++){
+      ctx.beginPath(); ctx.moveTo(0,0);
+      ctx.lineTo(Math.cos(i/36*Math.PI*2)*rad, Math.sin(i/36*Math.PI*2)*rad);
+      ctx.strokeStyle=`rgba(90,150,255,${0.1+0.08*pulse})`; ctx.stroke();
+    }
+    for(let r=28;r<rad;r+=26){
+      ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(110,180,255,${0.07+0.14*pulse*(r%52?0.6:1)})`;
+      ctx.lineWidth=r<90?2.4:1.15; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(0,0,22,0,Math.PI*2);
+    ctx.fillStyle=`rgba(230,195,92,${0.14+0.1*pulse})`; ctx.fill();
+    ctx.restore();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+function shuffle(arr){
+  const a=arr.slice();
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
+  return a;
+}
+function deal(){
+  const pick=d=>shuffle(BANK.filter(q=>q.d===d)).slice(0,5);
+  return [...pick(1),...pick(2),...pick(3)].map(q=>{
+    const sh=shuffle([0,1,2,3]);
+    return {cat:q.cat,q:q.q,a:sh.map(i=>q.a[i]),c:sh.indexOf(q.c),d:q.d};
+  });
+}
+function safeMoney(idxWrong){ return idxWrong>=10?32000:idxWrong>=5?1000:0; }
+function currentWon(i){ return i<=0?0:PRIZES[i-1]; }
+function renderLadder(){
+  $("ladder").innerHTML = PRIZES.map((p,i)=>{
+    const cls=["rung", SAFE[i]?"safe":"", state&&state.i===i?"now":"", state&&state.i>i?"won":""].filter(Boolean).join(" ");
+    return `<li class="${cls}"><span>${String(i+1).padStart(2,"0")}</span><span>${fmt(p)}</span></li>`;
+  }).join("");
+}
+function say(t){ $("host").textContent=t; }
+
+function showQ(){
+  const s=state, q=s.qs[s.i];
+  $("qNum").textContent="第 "+(s.i+1)+" 題　·　"+fmt(PRIZES[s.i]);
+  $("qCat").textContent=q.cat;
+  $("qText").textContent=q.q;
+  $("cashNow").textContent=fmt(currentWon(s.i));
+  $("answers").innerHTML=q.a.map((t,i)=>`
+    <button class="ans" data-i="${i}" ${s.removed.includes(i)?"disabled style=visibility:hidden":""}>
+      <span class="k">${LETTERS[i]}:</span>${t}
+    </button>`).join("");
+  $("answers").querySelectorAll(".ans").forEach(b=>b.onclick=()=>pick(+b.dataset.i));
+  renderLadder();
+  Music.bed(s.i);
+  say("第 "+(s.i+1)+" 題，獎金 "+fmt(PRIZES[s.i])+"。你嘅答案係？");
+}
+
+function pick(i){
+  if(state.lock) return;
+  state.choice=i;
+  document.querySelectorAll(".ans").forEach(b=>b.classList.toggle("picked", +b.dataset.i===i));
+  Music.lock();
+  confirmModal(i);
+}
+function confirmModal(i){
+  const q=state.qs[state.i];
+  openModal(`<h2>最後答案？</h2><p>你揀咗 <b>${LETTERS[i]}：${q.a[i]}</b><br>係咪最後答案？</p>
+    <button class="btn" id="yes">係，最後答案</button>
+    <button class="btn ghost" id="no">唔係，改過</button>`);
+  $("modal").querySelector("#yes").onclick=()=>{closeModal(); lockIn(i)};
+  $("modal").querySelector("#no").onclick=()=>{
+    closeModal(); state.choice=null;
+    document.querySelectorAll(".ans").forEach(b=>b.classList.remove("picked"));
+    Music.duck(1); say("唔緊要，慢慢諗。");
+  };
+}
+function openModal(html){$("modal").classList.remove("hidden");$("modal").innerHTML=`<div class="card">${html}</div>`}
+function closeModal(){$("modal").classList.add("hidden");$("modal").innerHTML=""}
+
+function lockIn(i){
+  state.lock=true;
+  document.body.classList.add("lock-dim");
+  const q=state.qs[state.i];
+  const buttons=[...document.querySelectorAll(".ans")];
+  say("就係 "+LETTERS[i]+"……");
+  const wait = state.i<5?800:state.i<10?1300:2000;
+  setTimeout(()=>{
+    document.body.classList.remove("lock-dim");
+    buttons.forEach(b=>{
+      const n=+b.dataset.i;
+      if(n===q.c) b.classList.add("correct");
+      if(n===i && i!==q.c) b.classList.add("wrong");
+    });
+    if(i===q.c){
+      Music.correct();
+      if(state.i===14){ say("正確！你贏到一百萬！"); setTimeout(()=>end(true,1000000),1100); return; }
+      say("正確！你而家有 "+fmt(PRIZES[state.i])+"。");
+      setTimeout(()=>{ state.i++; state.lock=false; state.choice=null; state.removed=[]; showQ(); }, 1200);
+    }else{
+      Music.wrong();
+      const m=safeMoney(state.i);
+      say("唔好意思，正確答案係 "+LETTERS[q.c]+"。");
+      setTimeout(()=>end(false,m),1600);
+    }
+  }, wait);
+}
+
+function use50(){
+  if(state.used.l50||state.lock) return;
+  const q=state.qs[state.i];
+  state.removed=shuffle([0,1,2,3].filter(i=>i!==q.c)).slice(0,2);
+  state.used.l50=true; $("l50").disabled=true; $("l50").classList.add("used");
+  Music.fifty(); showQ(); say("剩低兩個答案。");
+}
+function usePhone(){
+  if(state.used.lphone||state.lock) return;
+  state.used.lphone=true; $("lphone").disabled=true; $("lphone").classList.add("used");
+  const q=state.qs[state.i];
+  const conf=q.d===1?0.92:q.d===2?0.75:0.55;
+  const others=[0,1,2,3].filter(i=>i!==q.c && !state.removed.includes(i));
+  const guess=Math.random()<conf?q.c:others[0];
+  const words=Math.random()<conf
+    ? `我覺得係 ${LETTERS[guess]}：${q.a[guess]}。幾有信心。`
+    : `我唔係好肯定……估係 ${LETTERS[guess]}：${q.a[guess]}？`;
+  Music.phone();
+  openModal(`<h2>打電話</h2><p>正在接通阿儀……</p>`);
+  setTimeout(()=>{
+    openModal(`<h2>阿儀話</h2><p>「${words}」</p><button class="btn" id="ok">返去答題</button>`);
+    $("modal").querySelector("#ok").onclick=closeModal;
+    say("阿儀話："+words);
+  },1600);
+}
+function useAud(){
+  if(state.used.laud||state.lock) return;
+  state.used.laud=true; $("laud").disabled=true; $("laud").classList.add("used");
+  const q=state.qs[state.i];
+  const remain=[0,1,2,3].filter(i=>!state.removed.includes(i));
+  const bias=q.d===1?0.62:q.d===2?0.48:0.36;
+  const weights={};
+  remain.forEach(i=>{weights[i]=(i===q.c?bias:(1-bias)/(remain.length-1))+Math.random()*0.08});
+  const sum=remain.reduce((s,i)=>s+weights[i],0);
+  const pct={}; remain.forEach(i=>pct[i]=Math.round(weights[i]/sum*100));
+  const k=remain.reduce((a,b)=>pct[a]>pct[b]?a:b);
+  pct[k]+=100-remain.reduce((s,i)=>s+pct[i],0);
+  let html='<h2>現場觀眾</h2><div class="bars">';
+  remain.forEach(i=>{ html+=`<div class="bar-row"><span>${LETTERS[i]}</span><div class="bar"><i data-w="${pct[i]}"></i></div><span>${pct[i]}%</span></div>`; });
+  html+='</div><button class="btn" id="ok">返去答題</button>';
+  Music.audience(); openModal(html);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ $("modal").querySelectorAll("i").forEach(el=>el.style.width=el.dataset.w+"%"); }));
+  $("modal").querySelector("#ok").onclick=closeModal;
+  say("觀眾意見出嚟喇。");
+}
+function walkAway(){
+  if(state.lock) return;
+  const m=currentWon(state.i);
+  openModal(`<h2>攞走獎金？</h2><p>你而家可以攞走 <b>${fmt(m)}</b>。<br>確定唔答呢題？</p>
+    <button class="btn" id="yes">係，我攞走</button>
+    <button class="btn ghost" id="no">繼續答</button>`);
+  $("modal").querySelector("#yes").onclick=()=>{closeModal(); end(false,m,true)};
+  $("modal").querySelector("#no").onclick=closeModal;
+}
+function end(win,money,walk=false){
+  state.lock=true;
+  if(win) Music.win(); else Music.wrong();
+  const title=win?"恭喜，百萬富翁！":walk?"你選擇攞走":"挑戰結束";
+  const msg=win?`你答中全部十五題，贏得 <b>${fmt(money)}</b>！`:walk?`你攞走咗 <b>${fmt(money)}</b>。`:`最後獎金係 <b>${fmt(money)}</b>。`;
+  openModal(`<h2>${title}</h2><p>${msg}</p><p style="opacity:.8;font-size:13px">最多去到第 ${Math.min(state.i+(win?1:0),15)} 題。</p>
+    <button class="btn" id="again">再嚟一局</button>
+    <button class="btn ghost" id="home">返回封面</button>`);
+  $("modal").querySelector("#again").onclick=()=>{closeModal(); startGame()};
+  $("modal").querySelector("#home").onclick=()=>{closeModal(); Music.stopBed(); $("game").classList.add("hidden"); $("intro").classList.remove("hidden")};
+}
+function startGame(){
+  state={i:0,qs:deal(),lock:false,choice:null,removed:[],used:{l50:false,lphone:false,laud:false}};
+  ["l50","lphone","laud"].forEach(id=>{$(id).disabled=false;$(id).classList.remove("used")});
+  $("intro").classList.add("hidden");
+  $("game").classList.remove("hidden");
+  $("ladder").classList.remove("open");
+  showQ();
+}
+$("startBtn").onclick=()=>{ Music.init(); Music.letsPlay(); startGame(); };
+$("l50").onclick=use50;
+$("lphone").onclick=usePhone;
+$("laud").onclick=useAud;
+$("walkBtn").onclick=walkAway;
+$("ladderBtn").onclick=()=>$("ladder").classList.toggle("open");
+$("muteBtn").onclick=()=>Music.setMuted(!Music.muted);
+</script>
+</body>
+</html>
