@@ -238,42 +238,27 @@ const Music = {
     this.ensureFiles();
   },
   ensureFiles(){
-    if(!this.ctx) return;
+    if(this.introEl || !this.ctx) return;
     if(!this.bedGain){
       const g=this.ctx.createGain();
       g.gain.value=1;
       g.connect(this.master);
       this.bedGain=g;
     }
-    const hook=(src,loop)=>{
+    const hook=src=>{
       const el=new Audio(src);
-      el.loop=!!loop;
+      el.loop=true;
       el.preload="auto";
       el.crossOrigin="anonymous";
       el.playsInline=true;
       try{
         const n=this.ctx.createMediaElementSource(el);
-        n.connect(loop?this.bedGain:this.master);
+        n.connect(this.bedGain);
       }catch(e){}
       return el;
     };
-    if(!this.introEl){
-      this.introEl=hook("start_bed_v2.mp3", true);
-      this.heartEl=hook("heartbeat_bed.mp3", true);
-    }
-    if(!this.correctEl) this.correctEl=hook("correct_reveal_v4.mp3", false);
-  },
-  playCorrectFile(){
-    this.ensureFiles();
-    const el=this.correctEl;
-    if(!el) return false;
-    try{
-      el.pause();
-      el.currentTime=0;
-      const p=el.play();
-      if(p&&p.catch) p.catch(()=>{});
-      return true;
-    }catch(e){ return false; }
+    this.introEl=hook("start_bed_v2.mp3");
+    this.heartEl=hook("heartbeat_bed.mp3");
   },
   playFile(kind, fade){
     this.ensureFiles();
@@ -437,10 +422,6 @@ const Music = {
   },
   correct(){
     this.stopBed();
-    if(this.playCorrectFile()) return;
-    this.synthCorrect();
-  },
-  synthCorrect(){
     const {t}=this.out();
     [196,247,294,392].forEach((f,i)=>this.tone("triangle", f, t+i*0.08, 0.55, 0.09));
     this.tone("sine", 98, t, 0.9, 0.1);
