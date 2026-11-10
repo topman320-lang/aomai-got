@@ -28,6 +28,7 @@ import {
   uploadPath,
 } from './db.js';
 import { listingDto, normalizeHandover, purgeSeedUsers, seedIfEmpty } from './seed.js';
+import { normalizePhotoFrame } from '../src/photo-frame.js';
 import {
   acceptedBuyerId,
   applyConfirmReceipt,
@@ -356,6 +357,13 @@ function latestOffer(db, listingId, buyerId) {
 
 function bumpOffer(db, offer) {
   db.offers = [offer, ...db.offers.filter((o) => o.id !== offer.id)];
+}
+
+/** Drop in-app offer cards for one bid. The chat thread and its messages stay. */
+function dropOfferNotices(db, offerId) {
+  const id = String(offerId || '');
+  if (!id || !Array.isArray(db.notices)) return;
+  db.notices = db.notices.filter((n) => !(n && n.kind === 'offer' && String(n.refId || '') === id));
 }
 
 function messagePreviewText(m) {
@@ -740,7 +748,31 @@ app.get('/api/listings/:id', optionalAuth, (req, res) => {
   res.json({ listing: listingDto(l, db, publicBaseFor(req), req.user?.id || '') });
 });
 
-function readListingFields(body) {
+/** Save listing photos and the cover-crop frame that belongs to each one.
+ * When the client omits photoFrames, keep the frame already stored for that file. */
+function packListingPhotos(body, previous) {
+  const incoming = Array.isArray(body?.photos) ? body.photos : [];
+  const framesProvided = Array.isArray(body?.photoFrames);
+  const incomingFrames = framesProvided ? body.photoFrames : [];
+  const previousByPath = new Map();
+  if (!framesProvided && previous && Array.isArray(previous.photos)) {
+    previous.photos.forEach((photo, i) => {
+      const key = uploadPath(photo);
+      if (key) previousByPath.set(key, normalizePhotoFrame(previous.photoFrames?.[i]));
+    });
+  }
+  const photos = [];
+  const photoFrames = [];
+  for (let i = 0; i < incoming.length && photos.length < MAX_LISTING_PHOTOS; i += 1) {
+    const saved = savePhotos([incoming[i]], 1);
+    if (!saved.length) continue;
+    photos.push(saved[0]);
+    photoFrames.push(framesProvided ? normalizePhotoFrame(incomingFrames[i]) : previousByPath.get(saved[0]) || null);
+  }
+  return { photos, photoFrames };
+}
+
+function readListingFields(body, previous = null) {
   const title = String(body?.title || '').trim();
   const price = Number(body?.price);
   const category = String(body?.category || '其他').trim();
@@ -760,8 +792,8 @@ function readListingFields(body) {
       };
     }
   }
-  const photos = savePhotos(incomingPhotos || []);
-  if (!photos.length) {
+  const packed = packListingPhotos(body, previous);
+  if (!packed.photos.length) {
     return { error: { status: 400, error: 'PHOTO_REQUIRED', message: '請至少上傳一張相片' } };
   }
   return {
@@ -774,7 +806,8 @@ function readListingFields(body) {
       condition,
       description,
       handover: normalizeHandover(body?.handover, description),
-      photos,
+      photos: packed.photos,
+      photoFrames: packed.photoFrames,
     },
   };
 }
@@ -811,7 +844,7 @@ app.patch('/api/listings/:id', auth, (req, res) => {
   if (listing.sellerId !== req.user.id) {
     return res.status(403).json({ error: 'FORBIDDEN', message: '只有刊登者可以修改' });
   }
-  const parsed = readListingFields(req.body);
+  const parsed = readListingFields(req.body, listing);
   if (parsed.error) return sendListingWriteError(res, parsed.error);
   const fields = parsed.value;
   listing.title = fields.title;
@@ -823,6 +856,7 @@ app.patch('/api/listings/:id', auth, (req, res) => {
   listing.description = fields.description;
   listing.handover = fields.handover;
   listing.photos = fields.photos;
+  listing.photoFrames = fields.photoFrames;
   listing.tone = pickTone(fields.title);
   listing.emoji = pickEmoji(fields.category);
   listing.updatedAt = Date.now();
@@ -1014,6 +1048,7 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   }
   if (offer) {
     const prev = offerStatusOf(offer);
+    if (prev === 'cancelled') dropOfferNotices(db, offer.id);
     lead = prev === 'pending' ? '更新出價' : '再出價';
     offer.amount = amount;
     offer.meetup = meetup;
@@ -1159,6 +1194,8 @@ app.patch('/api/offers/:id', auth, (req, res) => {
       href: `chat/${thread.id}`,
       refId: offer.id,
     });
+    // The push can still go out. The card itself should not sit on 訊息.
+    dropOfferNotices(db, offer.id);
     touch(db, req.user.id);
     persist();
     return res.json({
