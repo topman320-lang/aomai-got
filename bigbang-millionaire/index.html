@@ -117,7 +117,7 @@ body.lock-dim #floor{filter:brightness(.7)}
         </button>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <div class="cash" id="cashNow">MOP$ 0</div>
+        <div class="cash" id="cashNow">0</div>
         <button class="ladder-toggle" id="ladderBtn">獎金表</button>
       </div>
     </div>
@@ -187,7 +187,7 @@ const PRIZES = [100,200,300,500,1000,2000,4000,8000,16000,32000,64000,125000,250
 const SAFE = {4:1000, 9:32000};
 const LETTERS = ["A","B","C","D"];
 const $ = id => document.getElementById(id);
-const fmt = n => "MOP$ " + n.toLocaleString("en-US");
+const fmt = n => n.toLocaleString("en-US");
 let state = null;
 
 const Music = {
