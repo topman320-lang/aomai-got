@@ -203,7 +203,7 @@ const Music = {
     this.ensureFiles();
   },
   ensureFiles(){
-    if(this.introEl || !this.ctx) return;
+    if(!this.ctx) return;
     if(!this.bedGain){
       const g=this.ctx.createGain();
       g.gain.value=1;
@@ -222,8 +222,23 @@ const Music = {
       }catch(e){}
       return el;
     };
-    this.introEl=hook("start_bed_v2.mp3");
-    this.heartEl=hook("heartbeat_bed.mp3");
+    if(!this.introEl){
+      this.introEl=hook("start_bed_v2.mp3");
+      this.heartEl=hook("heartbeat_bed.mp3");
+    }
+    if(!this.wrongEl){
+      const el=new Audio("wrong_reveal_v2_loud.mp3");
+      el.loop=false;
+      el.preload="auto";
+      el.crossOrigin="anonymous";
+      el.playsInline=true;
+      el.volume=1;
+      try{
+        const n=this.ctx.createMediaElementSource(el);
+        n.connect(this.master);
+      }catch(e){}
+      this.wrongEl=el;
+    }
   },
   playFile(kind, fade){
     this.ensureFiles();
@@ -391,12 +406,29 @@ const Music = {
     [196,247,294,392].forEach((f,i)=>this.tone("triangle", f, t+i*0.08, 0.55, 0.09));
     this.tone("sine", 98, t, 0.9, 0.1);
   },
-  wrong(){
-    this.stopBed();
+  playWrongFile(){
+    this.ensureFiles();
+    const el=this.wrongEl;
+    if(!el) return false;
+    try{ el.pause(); el.currentTime=0; el.volume=1; }catch(e){}
+    const p=el.play();
+    if(p&&p.catch) p.catch(()=>{ if(!this.wrongUsedFile) this.synthWrong(); });
+    el.onerror=()=>{ this.wrongUsedFile=false; this.synthWrong(); };
+    this.wrongUsedFile=true;
+    return true;
+  },
+  synthWrong(){
     const {t}=this.out();
     this.tone("sawtooth", 110, t, 0.7, 0.08);
     this.tone("sine", 73, t, 0.9, 0.14);
     this.tone("triangle", 61, t+0.12, 0.8, 0.1);
+  },
+  wrong(opts){
+    this.stopBed();
+    if(opts&&opts.skipIfPlayed&&this.wrongPlayed) return;
+    this.wrongPlayed=true;
+    this.wrongUsedFile=false;
+    if(!this.playWrongFile()) this.synthWrong();
   },
   win(){
     this.stopBed();
@@ -606,7 +638,7 @@ function walkAway(){
 }
 function end(win,money,walk=false){
   state.lock=true;
-  if(win) Music.win(); else Music.wrong();
+  if(win) Music.win(); else Music.wrong({skipIfPlayed:true});
   const title=win?"恭喜，百萬富翁！":walk?"你選擇攞走":"挑戰結束";
   const msg=win?`你答中全部十五題，贏得 <b>${fmt(money)}</b>！`:walk?`你攞走咗 <b>${fmt(money)}</b>。`:`最後獎金係 <b>${fmt(money)}</b>。`;
   openModal(`<h2>${title}</h2><p>${msg}</p><p style="opacity:.8;font-size:13px">最多去到第 ${Math.min(state.i+(win?1:0),15)} 題。</p>
@@ -616,6 +648,7 @@ function end(win,money,walk=false){
   $("modal").querySelector("#home").onclick=()=>{closeModal(); Music.stopBed(); $("game").classList.add("hidden"); $("intro").classList.remove("hidden"); Music.introBed()};
 }
 function startGame(){
+  Music.wrongPlayed=false;
   state={i:0,qs:deal(),lock:false,choice:null,removed:[],used:{l50:false,lphone:false,laud:false}};
   ["l50","lphone","laud"].forEach(id=>{$(id).disabled=false;$(id).classList.remove("used")});
   $("intro").classList.add("hidden");
