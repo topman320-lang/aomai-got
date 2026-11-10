@@ -211,6 +211,7 @@ const Music = {
     this.nodes.forEach(n=>{try{n.stop()}catch(e){}});
     this.nodes=[];
     if(this.beat){clearInterval(this.beat); this.beat=null}
+    this.introOn=false;
   },
   tone(type, freq, t0, dur, peak, dest){
     const {c}=this.out();
@@ -265,6 +266,45 @@ const Music = {
     this.tone("sine", 65, t, 1.6, 0.18);
     this.tone("triangle", 98, t+0.15, 1.4, 0.07);
     this.tone("sine", 196, t+0.55, 0.8, 0.05);
+  },
+  introBed(){
+    this.init(); this.stopBed();
+    const {c,t}=this.out();
+    const g=c.createGain();
+    g.gain.setValueAtTime(0,t);
+    g.gain.linearRampToValueAtTime(1,t+1.4);
+    g.connect(this.master); this.bedGain=g; this.introOn=true;
+    [[41,"sine",0.30],[61.5,"sine",0.14],[82,"triangle",0.07],[123,"sine",0.04],[164,"sine",0.025]].forEach(([f,ty,vol])=>{
+      const o=c.createOscillator(), gg=c.createGain(), lfo=c.createOscillator(), lg=c.createGain();
+      o.type=ty; o.frequency.value=f; gg.gain.value=vol;
+      lfo.frequency.value=0.12; lg.gain.value=f*0.012;
+      lfo.connect(lg); lg.connect(o.frequency);
+      o.connect(gg); gg.connect(g); o.start(); lfo.start();
+      this.nodes.push(o,lfo);
+    });
+    const boom=()=>{
+      if(!this.ctx||!this.bedGain) return;
+      const now=this.ctx.currentTime;
+      const punch=(delay,freq,v,d)=>{
+        const o=this.ctx.createOscillator(), gg=this.ctx.createGain();
+        o.type="sine";
+        o.frequency.setValueAtTime(freq, now+delay);
+        o.frequency.exponentialRampToValueAtTime(freq*0.42, now+delay+d);
+        gg.gain.setValueAtTime(v, now+delay);
+        gg.gain.exponentialRampToValueAtTime(0.0001, now+delay+d);
+        o.connect(gg); gg.connect(this.bedGain);
+        o.start(now+delay); o.stop(now+delay+d+0.03);
+      };
+      punch(0, 76, 0.50, 0.32);
+      punch(0.22, 52, 0.36, 0.38);
+      const tick=this.ctx.createOscillator(), tg=this.ctx.createGain();
+      tick.type="square"; tick.frequency.value=1480;
+      tg.gain.setValueAtTime(0.035, now+0.8);
+      tg.gain.exponentialRampToValueAtTime(0.0001, now+0.92);
+      tick.connect(tg); tg.connect(this.bedGain);
+      tick.start(now+0.8); tick.stop(now+0.95);
+    };
+    boom(); this.beat=setInterval(boom, 1680);
   },
   letsPlay(){
     const {t}=this.out();
@@ -506,7 +546,7 @@ function end(win,money,walk=false){
     <button class="btn" id="again">再嚟一局</button>
     <button class="btn ghost" id="home">返回封面</button>`);
   $("modal").querySelector("#again").onclick=()=>{closeModal(); startGame()};
-  $("modal").querySelector("#home").onclick=()=>{closeModal(); Music.stopBed(); $("game").classList.add("hidden"); $("intro").classList.remove("hidden")};
+  $("modal").querySelector("#home").onclick=()=>{closeModal(); Music.stopBed(); $("game").classList.add("hidden"); $("intro").classList.remove("hidden"); Music.introBed()};
 }
 function startGame(){
   state={i:0,qs:deal(),lock:false,choice:null,removed:[],used:{l50:false,lphone:false,laud:false}};
@@ -516,7 +556,19 @@ function startGame(){
   $("ladder").classList.remove("open");
   showQ();
 }
-$("startBtn").onclick=()=>{ Music.init(); Music.letsPlay(); startGame(); };
+function tryIntroMusic(){
+  if(!$("intro") || $("intro").classList.contains("hidden") || Music.introOn) return;
+  Music.init();
+  if(Music.ctx && Music.ctx.state==="suspended"){
+    Music.ctx.resume().then(()=>{ if(!$("intro").classList.contains("hidden") && !Music.introOn) Music.introBed(); });
+    return;
+  }
+  Music.introBed();
+}
+["pointerdown","touchstart","keydown"].forEach(ev=>document.addEventListener(ev, tryIntroMusic, {passive:true}));
+document.addEventListener("DOMContentLoaded", tryIntroMusic);
+tryIntroMusic();
+$("startBtn").onclick=()=>{ Music.init(); Music.stopBed(); Music.letsPlay(); startGame(); };
 $("l50").onclick=use50;
 $("lphone").onclick=usePhone;
 $("laud").onclick=useAud;
