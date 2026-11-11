@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>百萬富翁・澳門小食</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --gold:#e6c35c;--gold2:#f3e0a6;--orange:#e39412;--green:#13c45a;--red:#e03a32;--cyan:#7ecfff;--text:#f4edd4;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#020308;color:var(--text);font-family:"Noto Sans TC",system-ui,sans-serif;overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+.hidden{display:none !important}
+#floor{position:fixed;inset:0;width:100%;height:100%;z-index:0}
+#vignette{position:fixed;inset:0;z-index:1;pointer-events:none;background:radial-gradient(circle at 50% 38%,transparent 18%,#000 86%)}
+#app{position:relative;z-index:2;height:calc(100dvh - 120px - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;padding:calc(8px + env(safe-area-inset-top)) 12px 0}
+#mogotAd{position:fixed;left:0;right:0;bottom:0;z-index:4;width:100%;height:calc(120px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);background:#111;box-sizing:border-box}
+#mogotAd img{display:block;width:100%;height:120px;object-fit:cover;object-position:center;pointer-events:none}
+.screen{flex:1;display:flex;flex-direction:column;min-height:0}
+.center{align-items:center;justify-content:center;text-align:center}
+
+.badge{width:min(280px,70vw);height:min(280px,70vw);border-radius:50%;border:3px solid var(--gold);box-shadow:0 0 40px #e6c35c66, inset 0 0 40px #1a3aff33;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle at 50% 35%,#1a2a80,#050814 70%);margin:0 auto 18px}
+.logo{font-family:"Noto Serif TC",serif;font-weight:900;font-size:clamp(28px,8vw,46px);letter-spacing:.18em;color:var(--gold);text-shadow:0 0 18px #e6c35c99;margin:0}
+.sub{color:var(--gold2);letter-spacing:.42em;font-size:12px;margin:8px 0 0}
+.rules{max-width:440px;text-align:left;font-size:13px;line-height:1.75;color:#d8d0b0;margin:0 auto 22px;background:#050a18cc;border:1px solid #e6c35c44;padding:14px 16px}
+.btn{background:linear-gradient(#f0d78a,#c9a227);color:#2a1a00;border:0;border-radius:999px;padding:13px 34px;font-weight:800;font-size:17px;box-shadow:0 0 24px #e6c35c55;letter-spacing:.08em}
+.btn:active{transform:scale(.98)}
+#startCount{margin:12px 0 0;font-size:11px;letter-spacing:.08em;color:#8a93a8;min-height:1.2em}
+.btn.ghost{background:transparent;color:var(--gold);border:1px solid var(--gold);box-shadow:none;margin-top:10px}
+
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0 8px}
+.lifelines{display:flex;gap:10px;margin:0 auto}
+.life{width:68px;height:42px;border-radius:24px;border:2px solid var(--cyan);background:radial-gradient(circle at 50% 30%,#2450a8,#071028 72%);color:#dff6ff;box-shadow:0 0 14px #4ab0ff77, inset 0 0 10px #6ec8ff33;padding:0;position:relative}
+.life svg{width:34px;height:22px;display:block;margin:0 auto}
+.life .lab{font-size:11px;font-weight:900;letter-spacing:.02em}
+.life:disabled,.life.used{border-color:#c33;background:radial-gradient(circle at 50% 30%,#401010,#140000);box-shadow:none;opacity:.85}
+.life.used::after{content:"✕";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#ff3b3b;font-size:30px;font-weight:900;text-shadow:0 0 8px #000}
+.cash{font-family:"Noto Serif TC",serif;color:var(--gold);font-weight:700;font-size:14px;min-width:96px;text-align:right}
+.iconbtn{width:36px;height:36px;border-radius:50%;border:1px solid #6ec8ff88;background:#071028;color:#cfefff;font-size:16px}
+
+.play{flex:1;display:grid;grid-template-columns:1fr;gap:10px;min-height:0;position:relative}
+@media(min-width:900px){
+  .play{grid-template-columns:1fr 230px}
+  .ladder-toggle{display:none !important}
+  #ladder{display:flex !important}
+}
+#ladder{display:none;flex-direction:column-reverse;justify-content:center;gap:2px;padding:10px 8px;background:linear-gradient(#0a1630cc,#050a18ee);border:1px solid #1a3a80;overflow:auto}
+#ladder.open{display:flex;position:absolute;right:0;top:0;bottom:0;width:210px;z-index:6}
+.rung{display:flex;justify-content:space-between;padding:3px 10px;font-size:12px;font-weight:700;color:#d4a017;letter-spacing:.04em}
+.rung.safe{color:#fff}
+.rung.now{background:var(--orange);color:#1a1000}
+.rung.won{color:var(--gold)}
+.ladder-toggle{background:transparent;border:1px solid var(--gold);color:var(--gold);border-radius:8px;padding:6px 10px;font-size:12px}
+
+.stage{display:flex;flex-direction:column;justify-content:flex-end;min-height:0}
+.host{min-height:40px;font-size:14px;color:var(--gold2);text-align:center;margin:0 10px 8px;text-shadow:0 0 8px #000}
+.qmeta{display:flex;justify-content:space-between;font-size:11px;color:#9ab;padding:0 8%;letter-spacing:.1em}
+.qbox,.ans{
+  background:linear-gradient(#101a48,#070d24 48%,#101a48);
+  border:1.5px solid var(--gold);
+  box-shadow:0 0 0 1px #071040, 0 0 18px #1a4aff33, inset 0 0 22px #000a;
+  color:var(--text);
+}
+.qbox{
+  clip-path:polygon(1.2% 50%, 3.6% 0, 96.4% 0, 98.8% 50%, 96.4% 100%, 3.6% 100%);
+  padding:16px 7%;text-align:center;margin:4px 0 12px;font-size:clamp(16px,3.5vw,23px);font-weight:700;line-height:1.45
+}
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+@media(max-width:420px){.answers{grid-template-columns:1fr}}
+.ans{clip-path:polygon(3% 50%, 8% 0, 92% 0, 97% 50%, 92% 100%, 8% 100%);padding:11px 16px 11px 20px;text-align:left;font-size:14px;font-weight:500}
+.ans .k{color:var(--gold);font-weight:800;margin-right:7px}
+.ans:hover:not(:disabled){filter:brightness(1.1)}
+.ans.picked{background:linear-gradient(#a8620c,#e39412);border-color:#ffe08a;color:#fff}
+.ans.correct{background:linear-gradient(#0a6a28,#13c45a);border-color:#b9ffd0;color:#fff}
+.ans.wrong{background:linear-gradient(#6a1010,#e03a32);border-color:#ffb4b0;color:#fff}
+.ans.gone{visibility:hidden}
+.actions{display:flex;justify-content:center;gap:10px;padding:10px 0 6px}
+
+.modal{position:fixed;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:20;padding:20px}
+.card{background:linear-gradient(#121a3a,#070b18);border:1px solid var(--gold);padding:24px;max-width:420px;width:100%;text-align:center;box-shadow:0 0 40px #e6c35c33}
+.card h2{font-family:"Noto Serif TC",serif;color:var(--gold);margin:0 0 10px;letter-spacing:.12em}
+.card p{line-height:1.65;margin:0 0 16px;color:#e8e0c8}
+.bars{text-align:left;margin:12px 0 18px}
+.bar-row{display:grid;grid-template-columns:24px 1fr 40px;gap:8px;align-items:center;margin:6px 0;font-size:13px}
+.bar{height:12px;background:#1a2040;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#7ecfff,var(--gold));transition:width 1s ease}
+body.lock-dim #floor{filter:brightness(.7)}
+</style>
+</head>
+<body>
+<canvas id="floor"></canvas>
+<div id="vignette"></div>
+<div id="app">
+  <section id="intro" class="screen center">
+    <div class="badge">
+      <h1 class="logo">百萬富翁</h1>
+      <div class="sub">澳門小食</div>
+    </div>
+    <div class="rules">
+      題目全部圍繞澳門小店同特色小食。
+    </div>
+    <button class="btn" id="startBtn">開始挑戰</button>
+    <p id="startCount"></p>
+  </section>
+
+  <section id="game" class="screen hidden">
+    <div class="top">
+      <button class="iconbtn" id="muteBtn" title="靜音">♪</button>
+      <div class="lifelines">
+        <button class="life" id="l50" title="50:50"><span class="lab">50:50</span></button>
+        <button class="life" id="lphone" title="打電話問朋友">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#dff6ff" stroke-width="2"><path d="M7 3h4l1 5-2 1a12 12 0 0 0 5 5l1-2 5 1v4a2 2 0 0 1-2 2A16 16 0 0 1 5 7a2 2 0 0 1 2-2z"/></svg>
+        </button>
+        <button class="life" id="laud" title="問現場觀眾">
+          <svg viewBox="0 0 24 24" fill="#dff6ff" stroke="none"><circle cx="7" cy="8" r="2.2"/><circle cx="12" cy="7" r="2.4"/><circle cx="17" cy="8" r="2.2"/><path d="M3.5 18c.5-3 2.2-4.5 3.5-4.5S10 15 10.2 18H3.5zm4.6 0c.4-3.4 2.4-5.2 3.9-5.2s3.5 1.8 3.9 5.2H8.1zm5.7 0c.2-3 2-4.5 3.5-4.5s3 1.5 3.5 4.5H13.8z"/></svg>
+        </button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="cash" id="cashNow">0</div>
+        <button class="ladder-toggle" id="ladderBtn">獎金表</button>
+      </div>
+    </div>
+    <div class="play">
+      <div class="stage">
+        <div class="host" id="host">歡迎參加「百萬富翁・澳門小食」。</div>
+        <div class="qmeta"><span id="qNum">第 1 題</span><span id="qCat">地標</span></div>
+        <div class="qbox" id="qText"></div>
+        <div class="answers" id="answers"></div>
+        <div class="actions">
+          <button class="btn ghost" id="walkBtn">攞走獎金</button>
+        </div>
+      </div>
+      <ol id="ladder"></ol>
+    </div>
+  </section>
+</div>
+<div id="modal" class="modal hidden"></div>
+<footer id="mogotAd" aria-label="澳賣GOT">
+  <img src="banner-390.png" srcset="banner-390.png 1x, banner-390@2x.png 2x, banner-390@3x.png 3x" width="390" height="120" alt="澳賣GOT，新app快將推出"/>
+</footer>
+<script>
+const BANK = [
+  // easy
+  {d:1,cat:"小店",q:"黑沙環南方花園一帶嘅「康哥腸粉」，官方特色店頁同澳門日報最常介紹佢賣咩？",a:["自家製各款腸粉，例如雞蛋腸、瘦肉腸，亦有油條、豆漿、皮蛋瘦肉粥","開平碌鵝、特色燒雞同煎焗風鱔","秘製糯米酒魚頭雞，熟客叫「雞煲重酒」","滷水大腸同紅燒乳鴿"],c:0},
+  {d:1,cat:"小店",q:"下環河邊新街通益大廈一帶嘅「金美食」，官方同旅遊局都把邊款粉麵寫成呢間最大特色？",a:["鳳爪雞翼撈粗面","豬油渣撈麵／豬油渣粉麵，粉麵款式可以自選","鮮雞湯瀨粉","人蔘雞湯米同手撕雞撈麵"],c:1},
+  {d:1,cat:"小店",q:"黑沙環第二街文豐樓嘅「開平佬」，最常被官方同澳門日報介紹嘅招牌菜，同店名最對得上嘅係邊組？",a:["雲吞、水餃同順德魚皮角，店喺營地大街","自家製牛肉球同常常只限堂食嘅辣椒油，店喺路環打纜街","緬甸魚湯粉同椰汁雞麵，店喺三盞燈飛能便度街","開平碌鵝同特色燒雞，以開平家鄉味道同親民價錢見稱"],c:3},
+  {d:1,cat:"小店",q:"祐漢永華街僑光大廈嘅「石獅美食」，官方特色店頁同澳門日報都特別寫低嘅招牌係咩？",a:["胡椒豬肚煲同微辣花雕雞煲","濃湯杞子雞湯米粉","秘製糯米酒魚頭雞","雞煲翅"],c:2},
+  {d:1,cat:"小店",q:"祐漢新村第一街嘅「百樂門粉麵店」，澳門日報同特色店頁最常點名嘅招牌撈麵係邊款？",a:["鳳爪雞翼撈粗面","牛丸粉、牛腩粉同牛骨湯","豬油渣撈麵","乾炒牛河同炸雲吞"],c:0},
+  {d:1,cat:"小店",q:"筷子基美居廣場一期嘅「根記小食」，本地飲食紀錄片同食誌最常介紹嘅招牌包係咩？",a:["咖喱雞絲包，餡料承襲劉母秘方人手拆絲","葡式辣魚包：辣魚／濕免治夾豬仔包","人手打製全鯪魚肉魚餅，夾入炭爐烘過嘅豬仔包","招牌豬扒配秘製咖喱醬，夾包或者撈麵都有"],c:1},
+  {d:1,cat:"小店",q:"筷子基和樂大馬路嘅「雄興軒美食」，澳門日報 2024 年寫大家最愛嘅係邊兩款？",a:["胡椒豬肚煲同微辣花雕雞煲","乾炒牛河同薑蔥魚雲煲","鮮茄牛尾通心粉同瑞士雞翼炒公仔麵","鮮雞湯瀨粉；冬天再有鮮甜白蜆湯米"],c:3},
+  {d:1,cat:"小店",q:"望廈慕拉士大馬路八達新邨嘅「蔡冬記美食」（店名亦見「蔡東記」寫法），澳門日報特別推薦嘅招牌粉麵係咩？",a:["緬甸魚湯粉，官方寫用泥鰍魚熬一日","生熟牛肉粉","濃湯杞子雞湯米粉","人蔘雞湯米"],c:2},
+  {d:1,cat:"小店",q:"「青洲灶記咖啡」而家主要喺邊一帶？最早又係喺邊度起家？",a:["而家喺路環打纜街，最早係路環鐵皮屋茶座","而家喺筷子基，最早係青洲木屋區路邊鐵皮屋大排檔","而家喺黑沙環保利達一帶，最早係扁擔沿街叫賣咖喱牛腩粉","而家喺祐漢新村第一街，最早係菜園地年代車仔檔"],c:1},
+  {d:1,cat:"小店",q:"祐漢／馬場新美安大廈一帶嘅「金運美食」，澳門日報將佢寫成祐漢民生飯館，街坊必點邊兩款？",a:["滷水大腸同紅燒乳鴿","開平碌鵝同特色燒雞","秘製糯米酒魚頭雞同白灼螄蚶","濃湯杞子雞湯米粉同德國炸豬手"],c:0},
+  // mid
+  {d:2,cat:"小店",q:"祐漢新村第一街嘅「新金樂麵家」，官方同旅遊局點樣講佢嘅起源？",a:["由青洲木屋區路邊鐵皮屋大排檔起家，後來先搬去筷子基","由路環鐵皮屋變成茶座，創辦人叫楊輝","北區仲係菜園地嗰陣，創始人推住小車做街邊檔，後來荒地起樓，攤檔先搬入店面","由許叠夫婦扁擔沿街叫賣咖喱牛腩粉起家，後來先開實體店"],c:2},
+  {d:2,cat:"小店",q:"青洲劉記美食官方寫嘅「店魂」係邊款餸？創辦初期又係做咩生意？",a:["店魂係鮮茄牛尾通心粉，一開就已經係青洲路邊茶記","店魂係咖喱雞絲（承襲創辦人劉母秘方，人手拆絲）；最初係青洲木屋區小小雜貨士多，後來先專注飲食","店魂係葡式辣魚包，最初已經專門賣包點","店魂係光輝豬扒配秘製咖喱醬，最初喺光輝大廈創業"],c:1},
+  {d:2,cat:"小店",q:"新橋三盞燈飛能便度街嘅「雅香粉麵咖啡」，官方店誌對創辦人背景、魚湯粉同「膠兜撈麵法」嘅講法，最接近邊組？",a:["由越南華僑陳蘇開業；招牌係生熟牛肉粉；因越南米粉保存期短而改用廣東米粉","由祖籍順德嘅葉和在營地大街開業；鎮店三寶係雲吞、水餃同魚皮角","由「根叔」夫婦在青洲木屋區開業；招牌係葡式辣魚包","由緬甸歸僑葉永華開業；魚湯粉官方寫用泥鰍魚熬一日；「膠兜撈麵法」係店長父親自創"],c:3},
+  {d:2,cat:"小店",q:"沙梨頭惠愛街一帶嘅「新英記咖啡麵食」，2018 年力報專題寫佢最有辨識度嘅包點同咖啡做法係咩？",a:["炭燒杏仁餅同傳統手信餅食，同「英記餅家」係同一間老字號","人手打製全鯪魚肉魚餅，夾入炭爐烘過嘅豬仔包（力報稱「魚餅包」），再配瓦煲炭燒咖啡／奶啡","葡式辣魚包，另有多款包類組合同咖喱魚蛋","咖喱雞絲蛋治，再配花生奶粒粒西多"],c:1},
+  {d:2,cat:"小店",q:"菜園街祐昇大廈嘅「雞記」，官方特色店頁點樣介紹佢嘅定位同菜單？",a:["官方介紹話以豬油渣粉麵做最大特色，粉麵款式可以自選","官方介紹話把半天時間熬進牛骨湯，短菜單以牛丸粉、牛腩粉為主","官方介紹話係「全澳門獨家只賣雞肉的粉麵店」；推介有人蔘雞湯米、胡椒豬肚雞米、手撕雞撈麵等","官方介紹話以開平碌鵝同燒雞走向工薪階層"],c:2},
+  {d:2,cat:"小店",q:"營地大街嘅「鳳城珠記麵家」，店名「鳳城」同官方寫嘅「鎮店三寶」，邊組最準確？",a:["以雞球大包、蓮蓉酥同下午粵曲茶座見稱，店喺十月初五街","「鳳城」指順德古稱；三寶係雲吞（創辦人加入鮮蝦）、水餃（餡料後來改用白菜梗），以及引入嘅順德魚皮角","以自家製牛肉球、限堂食辣椒油同新鮮烘焙麵包見稱，店喺路環打纜街","以開平碌鵝、燒雞同煎焗風鱔見稱，店喺黑沙環"],c:1},
+  {d:2,cat:"小店",q:"十月初五街 127 至 131 號嘅「大龍鳳茶樓」，多個官方同澳門記憶來源都較一致嘅講法係？",a:["店名來自前身「得來茶樓」當年受歡迎嘅「龍鳳餅」（嫁女餅）；而家以下午粵曲茶座、小舞台見稱","原名卓仁榮記餐廳，1990 年代以「三餸一湯」包伙食見稱","由扁擔叫賣咖喱牛腩粉起家，而家以連鎖咖喱店見稱","由青洲木屋區鐵皮屋茶記起家，而家以鮮茄牛尾通心粉見稱"],c:0},
+  {d:2,cat:"小店",q:"路環「輝記美食茶座」嘅位置同最常被官方提到嘅特色，邊組最準確？",a:["喺路環黑沙海灘一帶，以葡國菜見稱，好似法蘭度（Fernando's）同一帶","喺路環市區打纜街一帶；自家製牛肉球好出名，獨門秘製辣椒油官方寫常常只限堂食","喺氹仔官也街，以豬扒包見稱","喺筷子基美居廣場，以葡式辣魚包見稱"],c:1},
+  {d:2,cat:"小店",q:"黑沙環保利達一帶嘅「叠記咖喱」，官方同澳門日報點樣講佢起家，同而家第三代許柏汶嘅背景？",a:["由許叠夫婦挑擔沿街叫賣咖喱牛腩粉起家；第三代許柏汶曾經做過飛機師，後來把航空業標準化管理、中央廚房做法帶入老店","由青洲木屋區雜貨士多起家；第二代劉偉明接手後以咖喱雞絲做店魂","由路環鐵皮屋起家；繼承父業嘅「開叔」繼續賣牛肉球","由沙梨頭街邊小攤檔做到入舖，以鯪魚魚餅包同瓦煲咖啡見稱"],c:0},
+  {d:2,cat:"小店",q:"下環沙嘉都喇賈罷麗街嘅「發達越南小食」，官方寫佢最有辨識度嘅粉同開業背景，最接近邊組？",a:["招牌係緬甸魚湯粉；創辦人葉永華係緬甸歸僑，喺三盞燈開業","招牌係生熟牛肉粉；創辦人陳蘇因戰亂移居澳門，受太太所煮咖喱魚蓉米粉觸動而開店，後來因越南米粉保存期短而改用廣東米粉","招牌係杞子雞湯米粉；店源自老闆嘅凍貨生意","招牌係泥猛魚蓉粥；店喺關閘／台山巴波沙大馬路一帶"],c:1},
+  // hard
+  {d:3,cat:"小店",q:"官方店誌寫「青洲灶記咖啡」上世紀八十年代由邊對夫婦接手？早年又以咩形式經營而聞名？",a:["許叠夫婦沿街叫賣咖喱牛腩粉起家，後來先開實體店同連鎖","創辦人楊輝由路環鐵皮屋做到茶座，繼承父業者被稱為「開叔」","1978 年由緬甸歸僑葉永華在三盞燈開業，以魚湯粉同膠兜撈麵見稱","何汗舟、曾彩南夫婦接手；早年以「矮凳仔」路邊茶記聞名，前身喺青洲木屋區"],c:3},
+  {d:3,cat:"小店",q:"下環沙嘉都喇賈罷麗街嘅「卓仁菜館」，官方店誌對店名同經營轉變，邊組較準確？",a:["前身叫得來茶樓，易手後先改名，而家以粵曲茶座見稱","由越南華僑陳蘇開業，同一條街專賣生熟牛肉粉","原名卓仁榮記餐廳；創業初期以西式麵包咖啡室為主，後來先轉型專注中菜；1990 年代鄰近製衣工廠區，鄭浩榮曾為工廠、寫字樓、學校同街坊推出「三餸一湯」包伙食","由葉紹文喺營地大街創立，專注順德菜"],c:2},
+  {d:3,cat:"小店",q:"福隆新街嘅「西南飯店」，官方特色老店頁對現址、招牌同菜式轉變嘅講法係？",a:["現址喺福隆新街；官方寫以火候十足嘅「雞煲翅」享譽港澳；由早期售賣野味轉型為經典粵菜","現址喺十月初五街；以粵曲茶座、雞球大包同蓮蓉酥見稱","現址喺沙嘉都喇賈罷麗街；官方特別提到仍保留鴛鴦三球、鹹魚肉餅、蒸大腸等少見澳門傳統風味，亦有雞煲翅、金錢蟹盒、霸王鴨","現址喺營地大街；官方稱為本地首家專注順德菜嘅食府"],c:0},
+  {d:3,cat:"小店",q:"關閘／台山巴波沙大馬路一帶嘅「澳門容記粥粉麵」，官方同澳門日報除咗一般粥品之外，仲特別提到邊啲辨識點？",a:["有生熟牛肉粉；因越南米粉保存期短而改用廣東米粉","有胡椒豬肚煲同花雕雞煲；店喺台山新城市花園","有泥猛魚蓉粥／魚茸粥；粥品官方強調新鮮同「無添加味精」","有雲吞蝦子撈麵同薑蔥魚雲煲；店喺筷子基和樂大馬路"],c:2},
+  {d:3,cat:"小店",q:"筷子基和樂大馬路宏基大廈嘅「老記粥麵」，官方特色店頁同澳門日報較一致提到嘅經營同菜式係？",a:["兩代人經營嘅粉麵店，街坊最愛鮮雞湯瀨粉同冬日白蜆湯米","由青洲木屋區遷到筷子基，招牌係鮮茄牛尾通心粉同瑞士雞翼炒公仔麵","喺美居廣場賣葡式辣魚包，本地紀錄片曾經專門拍過","特色店頁寫有獨立工廠只供本店，走「飲食綜合式」（酒樓菜同日常粥麵都有）；常被提到乾炒牛河、炸雲吞、雲吞蝦子撈麵同薑蔥魚雲煲"],c:3},
+  {d:3,cat:"小店",q:"營地大街 106 號嘅「順德公飯店」，官方特色老店頁對佢定位嘅講法，邊組最穩陣？",a:["官方稱為本地首家專注順德菜嘅食府，1979 年由葉紹文創立，深耕新馬路／營地大街一帶；已經係坐店酒家，唔係街頭小檔","係營地大街賣雲吞、水餃、魚皮角嘅麵家，店名「鳳城」指順德古稱","係福隆新街以雞煲翅見稱、由野味轉型嘅粵菜館","係三盞燈以緬甸魚湯粉同膠兜撈麵見稱嘅粉麵咖啡室"],c:0},
+  {d:3,cat:"小店",q:"高士德／提督一帶，賈伯樂提督街光輝大廈地下嘅「光輝咖啡室」，官方最強調、街坊口中常提嘅招牌係咩？",a:["咖喱雞絲，承襲創辦人劉母秘方人手拆絲","鮮茄牛尾通心粉同瑞士雞翼炒公仔麵","傳統技法沖煮咖啡、餐蛋麵同咖喱牛腩，創辦人由酒店從業員轉為店主","招牌豬扒同秘製咖喱醬；亦常有淋蠔油或咖喱醬嘅豬扒撈麵"],c:3},
+  {d:3,cat:"小店",q:"台山新城市花園一帶嘅「台山豬骨煲美食」，官方同澳門日報最常點名嘅招牌煲，其實係邊兩款？",a:["秘製糯米酒魚頭雞，熟客暗號叫「雞煲重酒」","胡椒豬肚煲同微辣花雕雞煲","雞煲翅，由早期售賣野味轉型而來","薑蔥魚雲煲同乾炒牛河"],c:1},
+];
+
+const PRIZES = [100,200,300,500,1000,2000,4000,8000,16000,32000,64000,125000,250000,500000,1000000];
+const SAFE = {4:1000, 9:32000};
+const LETTERS = ["A","B","C","D"];
+const $ = id => document.getElementById(id);
+const fmt = n => n.toLocaleString("en-US");
+let state = null;
+
+const Music = {
+  ctx:null, master:null, muted:false, bedGain:null, nodes:[], beat:null,
+  init(){
+    if(!this.ctx){
+      this.ctx = new (window.AudioContext||window.webkitAudioContext)();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : 0.78;
+      this.master.connect(this.ctx.destination);
+    }
+    if(this.ctx.state==="suspended") this.ctx.resume();
+    this.ensureFiles();
+  },
+  ensureFiles(){
+    if(!this.ctx) return;
+    if(!this.bedGain){
+      const g=this.ctx.createGain();
+      g.gain.value=1;
+      g.connect(this.master);
+      this.bedGain=g;
+    }
+    const hook=src=>{
+      const el=new Audio(src);
+      el.loop=true;
+      el.preload="auto";
+      el.crossOrigin="anonymous";
+      el.playsInline=true;
+      try{
+        const n=this.ctx.createMediaElementSource(el);
+        n.connect(this.bedGain);
+      }catch(e){}
+      return el;
+    };
+    if(!this.introEl){
+      this.introEl=hook("start_bed_v2.mp3");
+      this.heartEl=hook("heartbeat_bed.mp3");
+    }
+    const sting=src=>{
+      const el=new Audio(src);
+      el.loop=false;
+      el.preload="auto";
+      el.crossOrigin="anonymous";
+      el.playsInline=true;
+      el.volume=1;
+      try{
+        const n=this.ctx.createMediaElementSource(el);
+        n.connect(this.master);
+      }catch(e){}
+      return el;
+    };
+    if(!this.wrongEl) this.wrongEl=sting("wrong_reveal_v2_loud.mp3");
+    if(!this.correctEl) this.correctEl=sting("correct_reveal_v4.mp3");
+  },
+  playFile(kind, fade){
+    this.ensureFiles();
+    const el=kind==="intro"?this.introEl:this.heartEl;
+    if(!el) return false;
+    this.fileBed=kind;
+    if(kind==="intro") this.introOn=true;
+    if(this.bedGain){
+      const t=this.ctx.currentTime;
+      this.bedGain.gain.cancelScheduledValues(t);
+      this.bedGain.gain.setValueAtTime(0,t);
+      this.bedGain.gain.linearRampToValueAtTime(1,t+fade);
+    }
+    try{ el.currentTime=0; }catch(e){}
+    const p=el.play();
+    if(p&&p.catch) p.catch(()=>{});
+    if(kind==="intro" && this.heartEl){
+      const hp=this.heartEl.play();
+      if(hp&&hp.then) hp.then(()=>{ if(this.fileBed!=="heart"){ try{ this.heartEl.pause(); this.heartEl.currentTime=0; }catch(e){} } }).catch(()=>{});
+    }
+    el.onerror=()=>{
+      if(this.fileBed!==kind) return;
+      this.fileBed=null;
+      if(kind==="intro") this.synthIntroBed();
+      else this.synthBed(typeof state!=="undefined"&&state?state.i:0);
+    };
+    return true;
+  },
+  setMuted(m){
+    this.muted=m;
+    if(this.master) this.master.gain.value = m?0:0.78;
+    $("muteBtn").textContent = m?"🔇":"♪";
+  },
+  out(){ this.init(); return {c:this.ctx, m:this.master, t:this.ctx.currentTime}; },
+  stopBed(){
+    this.nodes.forEach(n=>{try{n.stop()}catch(e){}});
+    this.nodes=[];
+    if(this.beat){clearInterval(this.beat); this.beat=null}
+    this.introOn=false;
+    this.fileBed=null;
+    [this.introEl,this.heartEl].forEach(el=>{
+      if(!el) return;
+      try{ el.pause(); el.currentTime=0; }catch(e){}
+    });
+  },
+  tone(type, freq, t0, dur, peak, dest){
+    const {c}=this.out();
+    const o=c.createOscillator(), g=c.createGain();
+    o.type=type; o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(peak,0.0002), t0+0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+    o.connect(g); g.connect(dest||this.master);
+    o.start(t0); o.stop(t0+dur+0.02);
+    return o;
+  },
+  synthIntroBed(){
+    this.init(); this.stopBed();
+    if(this.playFile("intro", 1.4)) return;
+    this.synthIntroBed();
+  },
+  bed(i){
+    this.init();
+    if(this.fileBed==="heart" && this.heartEl && !this.heartEl.paused){ this.duck(1); return; }
+    this.stopBed();
+    if(this.playFile("heart", 0.7)) return;
+    this.synthBed(i);
+  },
+  synthBed(i){
+    const {c,t}=this.out();
+    const g=c.createGain(); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(1,t+0.7);
+    g.connect(this.master); this.bedGain=g;
+    const f0 = i<5? 49 : i<10? 41 : i<14? 34 : 27.5;
+    [[f0,"sine",0.32],[f0*2,"sine",0.11],[i>=10?f0*1.498:f0*1.5,"triangle", i>=10?0.10:0.07]].forEach(([f,ty,vol])=>{
+      const o=c.createOscillator(), gg=c.createGain();
+      o.type=ty; o.frequency.value=f; gg.gain.value=vol;
+      o.connect(gg); gg.connect(g); o.start(); this.nodes.push(o);
+    });
+    const period = i<5? 1380 : i<10? 1080 : i<14? 900 : 780;
+    const vol = 0.42 + i*0.02;
+    const boom=()=>{
+      if(!this.ctx||!this.bedGain) return;
+      const now=this.ctx.currentTime;
+      const punch=(delay,freq,v,d)=>{
+        const o=this.ctx.createOscillator(), gg=this.ctx.createGain();
+        o.type="sine";
+        o.frequency.setValueAtTime(freq, now+delay);
+        o.frequency.exponentialRampToValueAtTime(freq*0.45, now+delay+d);
+        gg.gain.setValueAtTime(v, now+delay);
+        gg.gain.exponentialRampToValueAtTime(0.0001, now+delay+d);
+        o.connect(gg); gg.connect(this.bedGain);
+        o.start(now+delay); o.stop(now+delay+d+0.03);
+      };
+      punch(0, 68, vol, 0.26);
+      punch(0.17, 54, vol*0.72, 0.3);
+    };
+    boom(); this.beat=setInterval(boom, period);
+  },
+  duck(to){
+    if(!this.bedGain) return;
+    const t=this.ctx.currentTime;
+    this.bedGain.gain.cancelScheduledValues(t);
+    this.bedGain.gain.linearRampToValueAtTime(to, t+0.25);
+  },
+  intro(){
+    const {t}=this.out();
+    this.tone("sine", 65, t, 1.6, 0.18);
+    this.tone("triangle", 98, t+0.15, 1.4, 0.07);
+    this.tone("sine", 196, t+0.55, 0.8, 0.05);
+  },
+  introBed(){
+    this.init(); this.stopBed();
+    const {c,t}=this.out();
+    const g=c.createGain();
+    g.gain.setValueAtTime(0,t);
+    g.gain.linearRampToValueAtTime(1,t+1.4);
+    g.connect(this.master); this.bedGain=g; this.introOn=true;
+    [[41,"sine",0.30],[61.5,"sine",0.14],[82,"triangle",0.07],[123,"sine",0.04],[164,"sine",0.025]].forEach(([f,ty,vol])=>{
+      const o=c.createOscillator(), gg=c.createGain(), lfo=c.createOscillator(), lg=c.createGain();
+      o.type=ty; o.frequency.value=f; gg.gain.value=vol;
+      lfo.frequency.value=0.12; lg.gain.value=f*0.012;
+      lfo.connect(lg); lg.connect(o.frequency);
+      o.connect(gg); gg.connect(g); o.start(); lfo.start();
+      this.nodes.push(o,lfo);
+    });
+    const boom=()=>{
+      if(!this.ctx||!this.bedGain) return;
+      const now=this.ctx.currentTime;
+      const punch=(delay,freq,v,d)=>{
+        const o=this.ctx.createOscillator(), gg=this.ctx.createGain();
+        o.type="sine";
+        o.frequency.setValueAtTime(freq, now+delay);
+        o.frequency.exponentialRampToValueAtTime(freq*0.42, now+delay+d);
+        gg.gain.setValueAtTime(v, now+delay);
+        gg.gain.exponentialRampToValueAtTime(0.0001, now+delay+d);
+        o.connect(gg); gg.connect(this.bedGain);
+        o.start(now+delay); o.stop(now+delay+d+0.03);
+      };
+      punch(0, 76, 0.50, 0.32);
+      punch(0.22, 52, 0.36, 0.38);
+      const tick=this.ctx.createOscillator(), tg=this.ctx.createGain();
+      tick.type="square"; tick.frequency.value=1480;
+      tg.gain.setValueAtTime(0.035, now+0.8);
+      tg.gain.exponentialRampToValueAtTime(0.0001, now+0.92);
+      tick.connect(tg); tg.connect(this.bedGain);
+      tick.start(now+0.8); tick.stop(now+0.95);
+    };
+    boom(); this.beat=setInterval(boom, 1680);
+  },
+  letsPlay(){
+    const {t}=this.out();
+    [82,123,164,246].forEach((f,i)=>this.tone("triangle", f, t+i*0.11, 0.5, 0.09));
+    this.tone("sine", 49, t, 1.1, 0.16);
+  },
+  lock(){
+    const {t}=this.out();
+    this.duck(0.18);
+    this.tone("sine", 43, t, 1.2, 0.14);
+    this.tone("triangle", 86, t+0.05, 1.1, 0.06);
+    this.tone("sine", 129, t+0.2, 0.9, 0.04);
+  },
+  playCorrectFile(){
+    this.ensureFiles();
+    const el=this.correctEl;
+    if(!el) return false;
+    try{ el.pause(); el.currentTime=0; el.volume=1; }catch(e){}
+    const p=el.play();
+    if(p&&p.catch) p.catch(()=>{ if(!this.correctUsedFile) this.synthCorrect(); });
+    el.onerror=()=>{ this.correctUsedFile=false; this.synthCorrect(); };
+    this.correctUsedFile=true;
+    return true;
+  },
+  synthCorrect(){
+    const {t}=this.out();
+    [196,247,294,392].forEach((f,i)=>this.tone("triangle", f, t+i*0.08, 0.55, 0.09));
+    this.tone("sine", 98, t, 0.9, 0.1);
+  },
+  correct(){
+    this.stopBed();
+    this.correctUsedFile=false;
+    if(!this.playCorrectFile()) this.synthCorrect();
+  },
+  playWrongFile(){
+    this.ensureFiles();
+    const el=this.wrongEl;
+    if(!el) return false;
+    try{ el.pause(); el.currentTime=0; el.volume=1; }catch(e){}
+    const p=el.play();
+    if(p&&p.catch) p.catch(()=>{ if(!this.wrongUsedFile) this.synthWrong(); });
+    el.onerror=()=>{ this.wrongUsedFile=false; this.synthWrong(); };
+    this.wrongUsedFile=true;
+    return true;
+  },
+  synthWrong(){
+    const {t}=this.out();
+    this.tone("sawtooth", 110, t, 0.7, 0.08);
+    this.tone("sine", 73, t, 0.9, 0.14);
+    this.tone("triangle", 61, t+0.12, 0.8, 0.1);
+  },
+  wrong(opts){
+    this.stopBed();
+    if(opts&&opts.skipIfPlayed&&this.wrongPlayed) return;
+    this.wrongPlayed=true;
+    this.wrongUsedFile=false;
+    if(!this.playWrongFile()) this.synthWrong();
+  },
+  win(){
+    this.stopBed();
+    const {t}=this.out();
+    [147,196,220,294,392].forEach((f,i)=>this.tone("triangle", f, t+i*0.13, 0.7, 0.1));
+    this.tone("sine", 73, t, 2, 0.14);
+  },
+  fifty(){
+    const {c,t,m}=this.out();
+    const o=c.createOscillator(), f=c.createBiquadFilter(), g=c.createGain();
+    o.type="sawtooth"; o.frequency.setValueAtTime(900,t); o.frequency.exponentialRampToValueAtTime(180,t+0.35);
+    f.type="lowpass"; f.frequency.value=1800; g.gain.setValueAtTime(0.08,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.4);
+    o.connect(f); f.connect(g); g.connect(m); o.start(t); o.stop(t+0.42);
+  },
+  phone(){
+    const {t}=this.out();
+    [0,0.4,1.0,1.4].forEach(dt=>{
+      this.tone("sine", 480, t+dt, 0.22, 0.08);
+      this.tone("sine", 440, t+dt, 0.22, 0.08);
+    });
+  },
+  audience(){
+    const {c,t,m}=this.out();
+    const len=c.sampleRate*1.4, buf=c.createBuffer(1,len,c.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*0.4;
+    const src=c.createBufferSource(); src.buffer=buf;
+    const f=c.createBiquadFilter(); f.type="bandpass"; f.frequency.value=1200; f.Q.value=0.7;
+    const g=c.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.linearRampToValueAtTime(0.12,t+0.15); g.gain.exponentialRampToValueAtTime(0.0001,t+1.3);
+    src.connect(f); f.connect(g); g.connect(m); src.start(t); src.stop(t+1.4);
+  }
+};
+
+(function floor(){
+  const cv=$("floor"), ctx=cv.getContext("2d");
+  function resize(){ cv.width=innerWidth; cv.height=innerHeight; }
+  addEventListener("resize", resize); resize();
+  function frame(ts){
+    const w=cv.width,h=cv.height,cx=w/2,cy=h*0.38, pulse=0.45+0.55*Math.sin(ts/700);
+    const rad=Math.max(w,h)*0.9;
+    ctx.fillStyle="#020308"; ctx.fillRect(0,0,w,h);
+    const g=ctx.createRadialGradient(cx,cy,8,cx,cy,rad);
+    g.addColorStop(0, `rgba(36,80,210,${0.5+0.16*pulse})`);
+    g.addColorStop(0.16, "rgba(10,26,90,0.55)");
+    g.addColorStop(1, "#020308");
+    ctx.fillStyle=g; ctx.fillRect(0,0,w,h);
+    ctx.save(); ctx.translate(cx,cy);
+    ctx.lineWidth=1;
+    for(let i=0;i<36;i++){
+      ctx.beginPath(); ctx.moveTo(0,0);
+      ctx.lineTo(Math.cos(i/36*Math.PI*2)*rad, Math.sin(i/36*Math.PI*2)*rad);
+      ctx.strokeStyle=`rgba(90,150,255,${0.1+0.08*pulse})`; ctx.stroke();
+    }
+    for(let r=28;r<rad;r+=26){
+      ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(110,180,255,${0.07+0.14*pulse*(r%52?0.6:1)})`;
+      ctx.lineWidth=r<90?2.4:1.15; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(0,0,22,0,Math.PI*2);
+    ctx.fillStyle=`rgba(230,195,92,${0.14+0.1*pulse})`; ctx.fill();
+    ctx.restore();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+function shuffle(arr){
+  const a=arr.slice();
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
+  return a;
+}
+const SEEN_KEY="macauMillionaireSeen";
+const SEEN_MAX=15;
+function loadSeen(){
+  try{
+    if(typeof localStorage==="undefined") return [];
+    const raw=localStorage.getItem(SEEN_KEY);
+    const arr=raw?JSON.parse(raw):[];
+    return Array.isArray(arr)?arr.filter(t=>typeof t==="string"):[];
+  }catch(e){ return []; }
+}
+function saveSeen(texts){
+  try{
+    if(typeof localStorage==="undefined") return;
+    const next=loadSeen().concat(texts).slice(-SEEN_MAX);
+    localStorage.setItem(SEEN_KEY, JSON.stringify(next));
+  }catch(e){}
+}
+function pickLevel(d,seen){
+  const pool=BANK.filter(q=>q.d===d);
+  const fresh=shuffle(pool.filter(q=>!seen.includes(q.q)));
+  const older=shuffle(pool.filter(q=>seen.includes(q.q)));
+  return fresh.concat(older).slice(0,5);
+}
+function deal(){
+  const seen=loadSeen();
+  const picked=[...pickLevel(1,seen),...pickLevel(2,seen),...pickLevel(3,seen)];
+  saveSeen(picked.map(q=>q.q));
+  return picked.map(q=>{
+    const sh=shuffle([0,1,2,3]);
+    return {cat:q.cat,q:q.q,a:sh.map(i=>q.a[i]),c:sh.indexOf(q.c),d:q.d};
+  });
+}
+function safeMoney(idxWrong){ return idxWrong>=10?32000:idxWrong>=5?1000:0; }
+function currentWon(i){ return i<=0?0:PRIZES[i-1]; }
+function renderLadder(){
+  $("ladder").innerHTML = PRIZES.map((p,i)=>{
+    const cls=["rung", SAFE[i]?"safe":"", state&&state.i===i?"now":"", state&&state.i>i?"won":""].filter(Boolean).join(" ");
+    return `<li class="${cls}"><span>${String(i+1).padStart(2,"0")}</span><span>${fmt(p)}</span></li>`;
+  }).join("");
+}
+function say(t){ $("host").textContent=t; }
+
+function showQ(){
+  const s=state, q=s.qs[s.i];
+  $("qNum").textContent="第 "+(s.i+1)+" 題　·　"+fmt(PRIZES[s.i]);
+  $("qCat").textContent=q.cat;
+  $("qText").textContent=q.q;
+  $("cashNow").textContent=fmt(currentWon(s.i));
+  $("answers").innerHTML=q.a.map((t,i)=>`
+    <button class="ans" data-i="${i}" ${s.removed.includes(i)?"disabled style=visibility:hidden":""}>
+      <span class="k">${LETTERS[i]}:</span>${t}
+    </button>`).join("");
+  $("answers").querySelectorAll(".ans").forEach(b=>b.onclick=()=>pick(+b.dataset.i));
+  renderLadder();
+  Music.bed(s.i);
+  say("第 "+(s.i+1)+" 題，獎金 "+fmt(PRIZES[s.i])+"。你嘅答案係？");
+}
+
+function pick(i){
+  if(state.lock) return;
+  state.choice=i;
+  document.querySelectorAll(".ans").forEach(b=>b.classList.toggle("picked", +b.dataset.i===i));
+  Music.lock();
+  confirmModal(i);
+}
+function confirmModal(i){
+  const q=state.qs[state.i];
+  openModal(`<h2>最後答案？</h2><p>你揀咗 <b>${LETTERS[i]}：${q.a[i]}</b><br>係咪最後答案？</p>
+    <button class="btn" id="yes">係，最後答案</button>
+    <button class="btn ghost" id="no">唔係，改過</button>`);
+  $("modal").querySelector("#yes").onclick=()=>{closeModal(); lockIn(i)};
+  $("modal").querySelector("#no").onclick=()=>{
+    closeModal(); state.choice=null;
+    document.querySelectorAll(".ans").forEach(b=>b.classList.remove("picked"));
+    Music.duck(1); say("唔緊要，慢慢諗。");
+  };
+}
+function openModal(html){$("modal").classList.remove("hidden");$("modal").innerHTML=`<div class="card">${html}</div>`}
+function closeModal(){$("modal").classList.add("hidden");$("modal").innerHTML=""}
+
+function lockIn(i){
+  state.lock=true;
+  document.body.classList.add("lock-dim");
+  const q=state.qs[state.i];
+  const buttons=[...document.querySelectorAll(".ans")];
+  say("就係 "+LETTERS[i]+"……");
+  const wait = state.i<5?800:state.i<10?1300:2000;
+  setTimeout(()=>{
+    document.body.classList.remove("lock-dim");
+    buttons.forEach(b=>{
+      const n=+b.dataset.i;
+      if(n===q.c) b.classList.add("correct");
+      if(n===i && i!==q.c) b.classList.add("wrong");
+    });
+    if(i===q.c){
+      Music.correct();
+      if(state.i===14){ say("正確！你贏到一百萬！"); setTimeout(()=>end(true,1000000),1100); return; }
+      say("正確！你而家有 "+fmt(PRIZES[state.i])+"。");
+      setTimeout(()=>{ state.i++; state.lock=false; state.choice=null; state.removed=[]; showQ(); }, 1200);
+    }else{
+      Music.wrong();
+      const m=safeMoney(state.i);
+      say("唔好意思，正確答案係 "+LETTERS[q.c]+"。");
+      setTimeout(()=>end(false,m),1600);
+    }
+  }, wait);
+}
+
+function use50(){
+  if(state.used.l50||state.lock) return;
+  const q=state.qs[state.i];
+  state.removed=shuffle([0,1,2,3].filter(i=>i!==q.c)).slice(0,2);
+  state.used.l50=true; $("l50").disabled=true; $("l50").classList.add("used");
+  Music.fifty(); showQ(); say("剩低兩個答案。");
+}
+function usePhone(){
+  if(state.used.lphone||state.lock) return;
+  state.used.lphone=true; $("lphone").disabled=true; $("lphone").classList.add("used");
+  const q=state.qs[state.i];
+  const conf=q.d===1?0.92:q.d===2?0.75:0.55;
+  const others=[0,1,2,3].filter(i=>i!==q.c && !state.removed.includes(i));
+  const guess=Math.random()<conf?q.c:others[0];
+  const words=Math.random()<conf
+    ? `我覺得係 ${LETTERS[guess]}：${q.a[guess]}。幾有信心。`
+    : `我唔係好肯定……估係 ${LETTERS[guess]}：${q.a[guess]}？`;
+  Music.phone();
+  openModal(`<h2>打電話</h2><p>正在接通阿儀……</p>`);
+  setTimeout(()=>{
+    openModal(`<h2>阿儀話</h2><p>「${words}」</p><button class="btn" id="ok">返去答題</button>`);
+    $("modal").querySelector("#ok").onclick=closeModal;
+    say("阿儀話："+words);
+  },1600);
+}
+function useAud(){
+  if(state.used.laud||state.lock) return;
+  state.used.laud=true; $("laud").disabled=true; $("laud").classList.add("used");
+  const q=state.qs[state.i];
+  const remain=[0,1,2,3].filter(i=>!state.removed.includes(i));
+  const bias=q.d===1?0.62:q.d===2?0.48:0.36;
+  const weights={};
+  remain.forEach(i=>{weights[i]=(i===q.c?bias:(1-bias)/(remain.length-1))+Math.random()*0.08});
+  const sum=remain.reduce((s,i)=>s+weights[i],0);
+  const pct={}; remain.forEach(i=>pct[i]=Math.round(weights[i]/sum*100));
+  const k=remain.reduce((a,b)=>pct[a]>pct[b]?a:b);
+  pct[k]+=100-remain.reduce((s,i)=>s+pct[i],0);
+  let html='<h2>現場觀眾</h2><div class="bars">';
+  remain.forEach(i=>{ html+=`<div class="bar-row"><span>${LETTERS[i]}</span><div class="bar"><i data-w="${pct[i]}"></i></div><span>${pct[i]}%</span></div>`; });
+  html+='</div><button class="btn" id="ok">返去答題</button>';
+  Music.audience(); openModal(html);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ $("modal").querySelectorAll("i").forEach(el=>el.style.width=el.dataset.w+"%"); }));
+  $("modal").querySelector("#ok").onclick=closeModal;
+  say("觀眾意見出嚟喇。");
+}
+function walkAway(){
+  if(state.lock) return;
+  const m=currentWon(state.i);
+  openModal(`<h2>攞走獎金？</h2><p>你而家可以攞走 <b>${fmt(m)}</b>。<br>確定唔答呢題？</p>
+    <button class="btn" id="yes">係，我攞走</button>
+    <button class="btn ghost" id="no">繼續答</button>`);
+  $("modal").querySelector("#yes").onclick=()=>{closeModal(); end(false,m,true)};
+  $("modal").querySelector("#no").onclick=closeModal;
+}
+function end(win,money,walk=false){
+  state.lock=true;
+  if(win) Music.win(); else Music.wrong({skipIfPlayed:true});
+  const title=win?"恭喜，百萬富翁！":walk?"你選擇攞走":"挑戰結束";
+  const msg=win?`你答中全部十五題，贏得 <b>${fmt(money)}</b>！`:walk?`你攞走咗 <b>${fmt(money)}</b>。`:`最後獎金係 <b>${fmt(money)}</b>。`;
+  openModal(`<h2>${title}</h2><p>${msg}</p><p style="opacity:.8;font-size:13px">最多去到第 ${Math.min(state.i+(win?1:0),15)} 題。</p>
+    <button class="btn" id="again">再嚟一局</button>
+    <button class="btn ghost" id="home">返回封面</button>`);
+  $("modal").querySelector("#again").onclick=()=>{closeModal(); startGame()};
+  $("modal").querySelector("#home").onclick=()=>{closeModal(); Music.stopBed(); $("game").classList.add("hidden"); $("intro").classList.remove("hidden"); Music.introBed()};
+}
+function startGame(){
+  Music.wrongPlayed=false;
+  state={i:0,qs:deal(),lock:false,choice:null,removed:[],used:{l50:false,lphone:false,laud:false}};
+  ["l50","lphone","laud"].forEach(id=>{$(id).disabled=false;$(id).classList.remove("used")});
+  $("intro").classList.add("hidden");
+  $("game").classList.remove("hidden");
+  $("ladder").classList.remove("open");
+  showQ();
+}
+function tryIntroMusic(){
+  if(!$("intro") || $("intro").classList.contains("hidden") || Music.introOn) return;
+  Music.init();
+  if(Music.ctx && Music.ctx.state==="suspended"){
+    Music.ctx.resume().then(()=>{ if(!$("intro").classList.contains("hidden") && !Music.introOn) Music.introBed(); });
+    return;
+  }
+  Music.introBed();
+}
+["pointerdown","touchstart","keydown"].forEach(ev=>document.addEventListener(ev, tryIntroMusic, {passive:true}));
+document.addEventListener("DOMContentLoaded", tryIntroMusic);
+tryIntroMusic();
+const START_COUNT_BASE="https://abacus.jasoncameron.dev";
+const START_COUNT_NS="aomai-got-macau-millionaire";
+const START_COUNT_KEY="start-challenge";
+function startCountUrl(action){
+  return START_COUNT_BASE+"/"+action+"/"+START_COUNT_NS+"/"+START_COUNT_KEY;
+}
+function showStartCount(n){
+  const el=$("startCount");
+  if(!el || typeof n!=="number") return;
+  el.textContent="已開始挑戰 "+n.toLocaleString("en-US")+" 次";
+}
+function loadStartCount(){
+  fetch(startCountUrl("get"),{cache:"no-store"}).then(r=>{
+    if(r.status===404){ showStartCount(0); return null; }
+    if(!r.ok) return null;
+    return r.json();
+  }).then(d=>{
+    if(d && typeof d.value==="number") showStartCount(d.value);
+  }).catch(()=>{});
+}
+function trackStart(){
+  fetch(startCountUrl("hit"),{cache:"no-store",keepalive:true}).then(r=>r.json()).then(d=>{
+    if(d && typeof d.value==="number") showStartCount(d.value);
+  }).catch(()=>{});
+}
+loadStartCount();
+$("startBtn").onclick=()=>{ trackStart(); Music.init(); Music.stopBed(); Music.letsPlay(); startGame(); };
+$("l50").onclick=use50;
+$("lphone").onclick=usePhone;
+$("laud").onclick=useAud;
+$("walkBtn").onclick=walkAway;
+$("ladderBtn").onclick=()=>$("ladder").classList.toggle("open");
+$("muteBtn").onclick=()=>Music.setMuted(!Music.muted);
+</script>
+</body>
+</html>
