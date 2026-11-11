@@ -30,6 +30,7 @@ button{font-family:inherit;cursor:pointer}
 .rules{max-width:440px;text-align:left;font-size:13px;line-height:1.75;color:#d8d0b0;margin:0 auto 22px;background:#050a18cc;border:1px solid #e6c35c44;padding:14px 16px}
 .btn{background:linear-gradient(#f0d78a,#c9a227);color:#2a1a00;border:0;border-radius:999px;padding:13px 34px;font-weight:800;font-size:17px;box-shadow:0 0 24px #e6c35c55;letter-spacing:.08em}
 .btn:active{transform:scale(.98)}
+#startCount{margin:12px 0 0;font-size:11px;letter-spacing:.08em;color:#8a93a8;min-height:1.2em}
 .btn.ghost{background:transparent;color:var(--gold);border:1px solid var(--gold);box-shadow:none;margin-top:10px}
 
 .top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0 8px}
@@ -104,6 +105,7 @@ body.lock-dim #floor{filter:brightness(.7)}
       題目全部圍繞澳門小店同特色小食。
     </div>
     <button class="btn" id="startBtn">開始挑戰</button>
+    <p id="startCount"></p>
   </section>
 
   <section id="game" class="screen hidden">
@@ -703,7 +705,33 @@ function tryIntroMusic(){
 ["pointerdown","touchstart","keydown"].forEach(ev=>document.addEventListener(ev, tryIntroMusic, {passive:true}));
 document.addEventListener("DOMContentLoaded", tryIntroMusic);
 tryIntroMusic();
-$("startBtn").onclick=()=>{ Music.init(); Music.stopBed(); Music.letsPlay(); startGame(); };
+const START_COUNT_BASE="https://abacus.jasoncameron.dev";
+const START_COUNT_NS="aomai-got-macau-millionaire";
+const START_COUNT_KEY="start-challenge";
+function startCountUrl(action){
+  return START_COUNT_BASE+"/"+action+"/"+START_COUNT_NS+"/"+START_COUNT_KEY;
+}
+function showStartCount(n){
+  const el=$("startCount");
+  if(!el || typeof n!=="number") return;
+  el.textContent="已開始挑戰 "+n.toLocaleString("en-US")+" 次";
+}
+function loadStartCount(){
+  fetch(startCountUrl("get"),{cache:"no-store"}).then(r=>{
+    if(r.status===404){ showStartCount(0); return null; }
+    if(!r.ok) return null;
+    return r.json();
+  }).then(d=>{
+    if(d && typeof d.value==="number") showStartCount(d.value);
+  }).catch(()=>{});
+}
+function trackStart(){
+  fetch(startCountUrl("hit"),{cache:"no-store",keepalive:true}).then(r=>r.json()).then(d=>{
+    if(d && typeof d.value==="number") showStartCount(d.value);
+  }).catch(()=>{});
+}
+loadStartCount();
+$("startBtn").onclick=()=>{ trackStart(); Music.init(); Music.stopBed(); Music.letsPlay(); startGame(); };
 $("l50").onclick=use50;
 $("lphone").onclick=usePhone;
 $("laud").onclick=useAud;
