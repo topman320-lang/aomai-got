@@ -1135,10 +1135,10 @@ async function renderHome(token = nextView(), options = {}) {
     if (!cats) return;
     const step = () => Math.max(96, Math.round((cats.clientWidth || 200) * 0.75));
     prev?.addEventListener('click', () => {
-      cats.scrollBy({ left: -step(), behavior: 'smooth' });
+      cats.scrollBy({ left: -step(), behavior: 'auto' });
     });
     next?.addEventListener('click', () => {
-      cats.scrollBy({ left: step(), behavior: 'smooth' });
+      cats.scrollBy({ left: step(), behavior: 'auto' });
     });
     cats.addEventListener('scroll', updateCatNav, { passive: true });
     const wheelTarget = cats.closest('.chip-row') || cats;

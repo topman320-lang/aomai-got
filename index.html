@@ -6,9 +6,20 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <!-- Capacitor WKWebView: lock scale at 1 so focus, blur, and double-tap
-         cannot leave the visual viewport zoomed. Text controls are also >= 16px. -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- The installed app locks scale: a WKWebView gesture on a field can
+         leave the visual viewport zoomed. The website keeps pinch-zoom so a
+         narrow window can be recovered. viewport-fit=cover stays; CSS pads
+         all four safe-area edges. Text controls are also >= 16px. -->
+    <meta name="viewport" id="viewport-meta" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <script>
+      (function () {
+        var protocol = '';
+        try { protocol = String(location.protocol || ''); } catch (e) {}
+        if (protocol === 'capacitor:' || protocol === 'ionic:' || protocol === 'file:') return;
+        var meta = document.getElementById('viewport-meta');
+        if (meta) meta.setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover');
+      })();
+    </script>
     <meta name="theme-color" content="#ffffff" id="theme-color-meta" />
     <meta name="description" content="MoGOT — Macau neighborly secondhand bargaining" />
     <meta name="apple-mobile-web-app-title" content="澳賣GOT" />

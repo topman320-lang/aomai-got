@@ -11,9 +11,12 @@
   --danger: #111111;
   --radius: 0;
   --tab-h: 64px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
   /* Status bar / Dynamic Island, plus 8px. */
-  --safe-t: calc(env(safe-area-inset-top, 0px) + 8px);
+  --pad-t: calc(var(--safe-t) + 8px);
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
     "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
   color-scheme: light;
@@ -47,6 +50,11 @@ body {
   font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Clip stray wide children so a narrow window is not shrunk to fit them. */
+  overflow-x: clip;
+  scroll-padding-top: var(--pad-t);
+  scroll-padding-bottom: calc(var(--tab-h) + var(--safe-b) + 16px);
+}
   /* Pinch and double-tap both stick the WKWebView visual viewport
      above 1 after a gesture on a field. pan-x/pan-y keeps scrolling
      and disables those zooms. Do not transform or scale html/body. */
@@ -82,14 +90,19 @@ img {
 
 #app {
   min-height: 100%;
+  min-width: 0;
+  width: 100%;
   display: flex;
   justify-content: center;
   touch-action: pan-x pan-y;
+  padding-left: var(--safe-l);
+  padding-right: var(--safe-r);
 }
 
 .phone {
   width: 100%;
   max-width: 430px;
+  min-width: 0;
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--bg);
@@ -148,7 +161,7 @@ img {
   background: var(--topbar-bg);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
-  padding: calc(16px + var(--safe-t)) 16px 14px;
+  padding: calc(16px + var(--pad-t)) 16px 14px;
   min-height: 64px;
   align-items: center;
   display: flex;
@@ -191,6 +204,8 @@ img {
   display: grid;
   align-items: end;
   justify-content: center;
+  padding-left: var(--safe-l);
+  padding-right: var(--safe-r);
 }
 
 .share-fallback[hidden] {
@@ -236,14 +251,14 @@ img {
 .brand-logo {
   height: 44px;
   width: auto;
-  max-width: min(300px, 86vw);
+  max-width: min(300px, 100%);
   object-fit: contain;
   display: block;
 }
 
 .brand-logo-lg {
   height: 64px;
-  max-width: min(360px, 92vw);
+  max-width: min(360px, 100%);
 }
 
 .brand-logo-home {
@@ -256,7 +271,7 @@ img {
 
 .topbar-brand {
   min-height: 88px;
-  padding: calc(18px + var(--safe-t)) 16px 16px;
+  padding: calc(18px + var(--pad-t)) 16px 16px;
   justify-content: center;
 }
 
@@ -300,7 +315,7 @@ img {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: max(24px, var(--safe-t)) max(24px, var(--safe-r)) max(24px, var(--safe-b)) max(24px, var(--safe-l));
 }
 
 .about-sheet {
@@ -685,11 +700,11 @@ img {
 /* Bottom action bar (detail / bargain / post) */
 .actionbar {
   position: fixed;
-  left: 0;
-  right: 0;
+  left: var(--safe-l);
+  right: var(--safe-r);
   margin-inline: auto;
   bottom: 0;
-  width: 100%;
+  width: auto;
   max-width: 430px;
   background: var(--bg);
   border-top: 1px solid var(--line);
@@ -702,6 +717,8 @@ img {
 .actionbar .btn {
   white-space: nowrap;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: 0 8px;
 }
 
@@ -1141,9 +1158,11 @@ img {
 
 .toast {
   position: fixed;
-  left: 50%;
+  left: var(--safe-l);
+  right: var(--safe-r);
+  margin-inline: auto;
   bottom: calc(var(--tab-h) + 24px + var(--safe-b));
-  transform: translateX(-50%);
+  width: max-content;
   background: var(--ink);
   color: var(--on-ink);
   padding: 10px 16px;
@@ -1152,7 +1171,7 @@ img {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
-  max-width: calc(100% - 48px);
+  max-width: min(430px, calc(100% - 32px));
   text-align: center;
 }
 
@@ -1163,11 +1182,11 @@ img {
 /* Tab bar */
 .tabbar {
   position: fixed;
-  left: 0;
-  right: 0;
+  left: var(--safe-l);
+  right: var(--safe-r);
   margin-inline: auto;
   bottom: 0;
-  width: 100%;
+  width: auto;
   max-width: 430px;
   height: calc(var(--tab-h) + var(--safe-b));
   padding-bottom: var(--safe-b);
@@ -1317,13 +1336,20 @@ html[data-theme="dark"] .theme-switch::after {
   background: var(--on-ink);
 }
 
-@media (min-width: 480px) {
+@media (min-width: 480px) and (min-height: 700px) {
   body {
     padding: 24px 0;
   }
   .phone {
-    min-height: calc(100vh - 48px);
+    min-height: calc(100dvh - 48px);
     border-radius: 0;
+  }
+  /* The column is inset by the padding above. A 100dvh dock would
+     run past the visual viewport and hide the action bar. */
+  .phone:has(.screen.docked),
+  .phone:has(.chat-composer) {
+    height: calc(100dvh - 48px);
+    max-height: calc(100dvh - 48px);
   }
 }
 
@@ -1917,8 +1943,8 @@ html[data-theme="dark"] .bubble-row.me .bubble-delete {
 
 .chat-viewer-close {
   position: absolute;
-  top: calc(12px + var(--safe-t));
-  right: 12px;
+  top: calc(12px + var(--pad-t));
+  right: calc(12px + var(--safe-r));
   width: 36px;
   height: 36px;
   background: var(--bg);
@@ -2152,7 +2178,7 @@ html[data-theme="dark"] .bubble-row.me .bubble-delete {
 }
 
 .home-head .topbar-brand {
-  padding: calc(12px + var(--safe-t)) 16px 2px;
+  padding: calc(12px + var(--pad-t)) 16px 2px;
   min-height: 0;
   justify-content: flex-start;
 }
@@ -2590,6 +2616,8 @@ body.offer-open {
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  padding-left: var(--safe-l);
+  padding-right: var(--safe-r);
 }
 
 .offer-sheet {
@@ -3285,6 +3313,68 @@ button.seller-card:active {
 
 .notify-note {
   padding: 0 16px 8px;
+}
+
+/* Short windows (folded-phone landscape is about 368px tall).
+   The sticky home header plus the tab bar otherwise hide the feed.
+   Let that header scroll away, and keep the tab bar tappable. */
+@media (max-height: 430px) {
+  :root {
+    --tab-h: 52px;
+  }
+
+  .home-head {
+    position: static;
+  }
+
+  .topbar {
+    padding-top: calc(8px + var(--safe-t));
+    padding-bottom: 8px;
+    min-height: 48px;
+  }
+
+  .home-head .topbar-brand {
+    padding-top: calc(4px + var(--safe-t));
+    padding-bottom: 0;
+  }
+
+  .home-head .search {
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .home-head .chips,
+  .chip-row .chips {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .price-filter {
+    padding-bottom: 8px;
+  }
+
+  .price-filter input {
+    height: 32px;
+  }
+
+  .screen {
+    padding-bottom: calc(var(--tab-h) + var(--safe-b) + 8px);
+  }
+
+  .screen.no-tab {
+    padding-bottom: calc(24px + var(--safe-b));
+  }
+
+  .empty {
+    padding: 24px 16px;
+  }
+
+  .tab {
+    gap: 2px;
+    font-size: 10px;
+  }
 }
 
 /* iOS WKWebView zooms on focus when a text control's computed font-size
