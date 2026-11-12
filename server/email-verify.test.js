@@ -299,7 +299,17 @@ test('register cannot login until verify; resend rotates the link; old accounts 
 
   const badPage = await fetch(`${api.base}/auth/verify?token=nope`);
   assert.equal(badPage.status, 400);
-  assert.match(await badPage.text(), /未能認證/);
+  const badHtml = await badPage.text();
+  assert.match(badHtml, /未能認證/);
+  assert.match(badHtml, /如果你已經完成認證，可以直接返回登入。/);
+  assert.match(badHtml, /喺登入頁填寫註冊電郵，再撳「重寄認證信」。/);
+  assert.match(badHtml, /打開新寄出嘅認證信入面嘅連結。/);
+  assert.match(badHtml, /<a href="\/#\/login">返回登入<\/a>/);
+  assert.doesNotMatch(badHtml, /App 入面/);
+
+  const missing = await fetch(`${api.base}/auth/verify`);
+  assert.equal(missing.status, 400);
+  assert.match(await missing.text(), /重寄認證信/);
 
   const page = await fetch(`${api.base}/auth/verify?token=${encodeURIComponent(created.data.verificationToken)}`);
   assert.equal(page.status, 200);
@@ -310,6 +320,9 @@ test('register cannot login until verify; resend rotates the link; old accounts 
 
   const again = await fetch(`${api.base}/auth/verify?token=${encodeURIComponent(created.data.verificationToken)}`);
   assert.equal(again.status, 400);
+  const usedHtml = await again.text();
+  assert.match(usedHtml, /重寄認證信/);
+  assert.doesNotMatch(usedHtml, /App 入面/);
 
   const session = await postJson(api.base, '/api/auth/login', {
     email: 'new-user@example.com',
