@@ -16,6 +16,7 @@
         var protocol = '';
         try { protocol = String(location.protocol || ''); } catch (e) {}
         if (protocol === 'capacitor:' || protocol === 'ionic:' || protocol === 'file:') return;
+        document.documentElement.setAttribute('data-shell', 'web');
         var meta = document.getElementById('viewport-meta');
         if (meta) meta.setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover');
       })();

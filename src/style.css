@@ -54,10 +54,10 @@ body {
   overflow-x: clip;
   scroll-padding-top: var(--pad-t);
   scroll-padding-bottom: calc(var(--tab-h) + var(--safe-b) + 16px);
-}
   /* Pinch and double-tap both stick the WKWebView visual viewport
      above 1 after a gesture on a field. pan-x/pan-y keeps scrolling
-     and disables those zooms. Do not transform or scale html/body. */
+     and disables those zooms. Do not transform or scale html/body.
+     The public site overrides this below so pinch-zoom still works. */
   touch-action: pan-x pan-y;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -111,6 +111,14 @@ img {
   display: flex;
   flex-direction: column;
   box-shadow: 0 0 0 1px var(--line);
+}
+
+/* Website only. The native shell does not set data-shell, so it keeps pan-x pan-y. */
+html[data-shell="web"],
+html[data-shell="web"] body,
+html[data-shell="web"] #app,
+html[data-shell="web"] .phone {
+  touch-action: pan-x pan-y pinch-zoom;
 }
 
 .screen {
@@ -2272,6 +2280,10 @@ html[data-theme="dark"] .bubble-row.me .bubble-delete {
   touch-action: pan-y;
   min-width: 0;
   width: 100%;
+}
+
+html[data-shell="web"] .gallery-stage {
+  touch-action: pan-y pinch-zoom;
 }
 
 .gallery-stage .emoji {
