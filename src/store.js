@@ -458,6 +458,11 @@ export async function resetPassword(token, password) {
   return AuthApi.reset({ token, password });
 }
 
+/** Updates the signed-in user's password. The current login token stays valid. */
+export async function changePassword({ currentPassword, newPassword, confirmPassword }) {
+  return AuthApi.changePassword({ currentPassword, newPassword, confirmPassword });
+}
+
 export async function logout() {
   rotateSession();
   clearToken();

@@ -20,7 +20,7 @@ From repo root: `npm run server` (after `npm run server:install` once).
 
 There is no built-in demo login. `POST /api/auth/register` creates an account with `emailVerified: false` and emails a one-time link (48 hours). The response does not include a session token. `POST /api/auth/login` rejects that account until `GET /auth/verify?token=` or `POST /api/auth/verify` marks it verified. Rows that have no `emailVerified` field (accounts created before this check, including current users) can still log in.
 
-`POST /api/auth/resend-verification` sends another link only when the address is registered and still unverified. The JSON message is the same when the address is unknown. `POST /api/auth/forgot` emails a 30-minute `#/reset?token=` link when the address is registered and `RESEND_API_KEY` or `SMTP_URL` is set. The JSON message is the same either way, and the token is not returned. A mail failure is logged and still answers with that message. The same per-email and per-IP limits as resend apply.
+`POST /api/auth/resend-verification` sends another link only when the address is registered and still unverified. The JSON message is the same when the address is unknown. `POST /api/auth/forgot` emails a 30-minute `#/reset?token=` link when the address is registered and `RESEND_API_KEY` or `SMTP_URL` is set. The JSON message is the same either way, and the token is not returned. A mail failure is logged and still answers with that message. The same per-email and per-IP limits as resend apply. Signed-in password changes use `POST /api/me/password` and do not send that email. The current login token stays valid.
 
 On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are removed with the listings, offers, threads, messages, reviews, handoffs, wants, devices, and notices that belong to them. Other emails are left in place.
 
@@ -62,6 +62,7 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 | POST | `/api/auth/resend-verification` | no | `{ email }`. Same message whether or not the address exists. Limited per email and IP |
 | POST | `/api/auth/forgot` | no | `{ email }`. Reset mail when the address exists. Same message either way. Limited per email and IP |
 | POST | `/api/auth/reset` | no | `{ token, password }` from the `#/reset` link. Link expires in 30 minutes |
+| POST | `/api/me/password` | yes | `{ currentPassword, newPassword, confirmPassword }`. Rejects a wrong current password, a mismatch, or a new password shorter than 6 characters. The session stays signed in |
 | GET | `/api/badges` | yes | `{ messages, offers, notices }` — unread threads, offers waiting on you, unread in-app notices |
 | GET | `/api/listings?limit&offset` | optional | Public browse hides sold. `mine=1` (auth) is the signed-in seller's inventory, including sold. Omit `limit` for every matching row. With `limit`, also returns `total`, `hasMore`, `nextOffset` |
 | DELETE | `/api/listings/:id` | yes | Seller only. Hides the listing from browse and 我的刊登. The row stays so old detail links still open as removed. Pending and countered offers on it are closed. Threads stay |

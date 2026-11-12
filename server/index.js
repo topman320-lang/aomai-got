@@ -30,6 +30,11 @@ import {
 import { listingDto, normalizeHandover, purgeSeedUsers, seedIfEmpty } from './seed.js';
 import { normalizePhotoFrame } from '../src/photo-frame.js';
 import {
+  PASSWORD_UPDATED,
+  PASSWORD_WRONG_CURRENT,
+  firstPasswordChangeError,
+} from '../src/password-change.js';
+import {
   acceptedBuyerId,
   applyConfirmReceipt,
   backfillDeals,
@@ -145,6 +150,10 @@ const BIO_MAX = 80;
 
 function passwordFingerprint(passwordHash) {
   return crypto.createHash('sha256').update(String(passwordHash)).digest('hex').slice(0, 16);
+}
+
+function readPassword(value) {
+  return typeof value === 'string' ? value : '';
 }
 
 function signReset(user) {
@@ -702,6 +711,42 @@ app.patch('/api/me', auth, (req, res) => {
   touch(db, user.id);
   persist();
   res.json({ user: presentUser(user, req) });
+});
+
+app.post('/api/me/password', auth, (req, res) => {
+  const currentPassword = readPassword(req.body?.currentPassword);
+  const newPassword = readPassword(req.body?.newPassword);
+  const confirmPassword = readPassword(req.body?.confirmPassword);
+  const problem = firstPasswordChangeError(currentPassword, newPassword, confirmPassword);
+  if (problem) {
+    return res.status(400).json({ error: 'INVALID_INPUT', message: problem });
+  }
+
+  const db = loadDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(401).json({ error: 'UNAUTHORIZED', message: '請先登入' });
+
+  let currentOk = false;
+  try {
+    currentOk = Boolean(user.passwordHash) && bcrypt.compareSync(currentPassword, user.passwordHash);
+  } catch {
+    currentOk = false;
+  }
+  if (!currentOk) {
+    return res.status(400).json({ error: 'BAD_PASSWORD', message: PASSWORD_WRONG_CURRENT });
+  }
+
+  let passwordHash;
+  try {
+    passwordHash = bcrypt.hashSync(newPassword, 10);
+  } catch {
+    return res.status(500).json({ error: 'SERVER_ERROR', message: '伺服器錯誤' });
+  }
+  // Login tokens do not embed the password hash, so this session stays signed in.
+  // A reset link already issued for the previous hash stops working.
+  user.passwordHash = passwordHash;
+  persist();
+  res.json({ ok: true, message: PASSWORD_UPDATED });
 });
 
 function priceBound(value) {
