@@ -102,6 +102,8 @@ img {
 
 .screen {
   flex: 1;
+  min-width: 0;
+  max-width: 100%;
   /* Visible so sticky top bars stick to the viewport. An overflow box that
      grows with the page lets those bars slide under the status bar. */
   overflow: visible;
@@ -352,12 +354,50 @@ img {
 }
 
 /* Chips / categories */
+.chip-row {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--bg);
+}
+
+.chip-nav {
+  flex: 0 0 36px;
+  width: 36px;
+  border: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+
+.chip-nav:disabled {
+  color: var(--line);
+  cursor: default;
+}
+
+.chip-nav:focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: -2px;
+}
+
 .chips {
   display: flex;
   gap: 8px;
   overflow-x: auto;
   padding: 8px 16px 12px;
   scrollbar-width: none;
+}
+
+.chip-row .chips {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chips::-webkit-scrollbar {
@@ -788,6 +828,23 @@ img {
   line-height: 1.5;
 }
 
+.field-error {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.field-error[hidden] {
+  display: none;
+}
+
+.field input[aria-invalid='true'] {
+  background: var(--soft);
+}
+
 .photo-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -977,21 +1034,42 @@ img {
 
 .avatar-edit {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
+}
+
+.avatar-edit > #avatar-preview {
+  flex: 0 0 auto;
 }
 
 .avatar-actions {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
+  flex: 1 1 auto;
+  position: relative;
+  z-index: 1;
+}
+
+.avatar-actions .photo-camera {
+  height: 44px;
+  max-height: 44px;
+  overflow: hidden;
+  clip-path: inset(0);
+  z-index: 1;
 }
 
 .avatar-actions .text-link {
-  padding: 0;
-  background: none;
+  position: relative;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 8px 2px;
+  background: var(--bg);
 }
 
 .avatar-actions .text-link[hidden] {
@@ -2061,6 +2139,8 @@ html[data-theme="dark"] .bubble-row.me .bubble-delete {
   z-index: 20;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .home-head .topbar {

@@ -107,10 +107,12 @@ function parseHash() {
 }
 
 let navGeneration = 0;
+let hashChangeFromGo = false;
 
 function go(path) {
   const next = `#/${String(path || '').replace(/^\//, '')}`;
   if (location.hash === next) return;
+  hashChangeFromGo = true;
   navGeneration += 1;
   location.hash = next;
 }
@@ -164,6 +166,30 @@ function paintPhotoFrame(img, frame) {
   img.style.objectPosition = css.objectPosition;
   img.style.transform = css.transform;
   img.style.transformOrigin = css.transformOrigin;
+}
+
+/** Replace the hero node so the previous photo's bitmap cannot stay on screen. */
+function swapHero(root, shot) {
+  const stage = root?.querySelector('.gallery-stage');
+  if (!stage || !shot?.src) return;
+  const src = mediaSrc(shot.src);
+  const current = stage.querySelector('.hero-img');
+  if (current && current.getAttribute('src') === src && current.dataset.broken !== '1') {
+    paintPhotoFrame(current, shot.frame);
+    return;
+  }
+  const img = document.createElement('img');
+  img.className = 'hero-img';
+  img.alt = '';
+  img.decoding = 'sync';
+  paintPhotoFrame(img, shot.frame);
+  img.addEventListener('error', () => {
+    img.dataset.broken = '1';
+    img.removeAttribute('src');
+  });
+  if (current) current.replaceWith(img);
+  else stage.prepend(img);
+  img.src = src;
 }
 
 function framedPhotoHtml(src, frame, { className = '', editable = false } = {}) {
@@ -663,6 +689,40 @@ function renderLogin() {
   });
 }
 
+function plausibleEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
+}
+
+function paintFieldError(input, message) {
+  if (!input) return;
+  const field = input.closest('.field');
+  const el = field?.querySelector('.field-error');
+  input.setCustomValidity(message || '');
+  if (!message) {
+    input.removeAttribute('aria-invalid');
+    input.removeAttribute('aria-describedby');
+    if (el) {
+      el.hidden = true;
+      el.textContent = '';
+    }
+    return;
+  }
+  input.setAttribute('aria-invalid', 'true');
+  if (el) {
+    el.hidden = false;
+    el.textContent = message;
+    input.setAttribute('aria-describedby', el.id);
+  }
+}
+
+function registerFieldErrors(name, email, password) {
+  return {
+    name: !name ? '請填寫顯示名稱' : Array.from(name).length > 20 ? '顯示名稱最多 20 字' : '',
+    email: !email ? '請填寫電郵' : !plausibleEmail(email) ? '請輸入有效電郵' : '',
+    password: !password ? '請填寫密碼' : password.length < 6 ? '密碼至少 6 位' : '',
+  };
+}
+
 function renderRegister() {
   const content = `
     <header class="topbar">
@@ -670,18 +730,21 @@ function renderRegister() {
       <h1>註冊</h1>
     </header>
     ${offlineBanner()}
-    <form class="form" id="register-form">
+    <form class="form" id="register-form" novalidate>
       <div class="field">
         <label for="name">顯示名稱</label>
-        <input id="name" name="name" lang="zh-Hant" required maxlength="20" placeholder="例如：阿輝" />
+        <input id="name" name="name" lang="zh-Hant" required maxlength="20" autocomplete="nickname" placeholder="例如：阿輝" aria-required="true" />
+        <p class="field-error" id="name-error" role="alert" hidden></p>
       </div>
       <div class="field">
         <label for="email">電郵</label>
-        <input id="email" name="email" type="email" autocomplete="username" required placeholder="you@example.com" />
+        <input id="email" name="email" type="email" autocomplete="username" required placeholder="you@example.com" aria-required="true" />
+        <p class="field-error" id="email-error" role="alert" hidden></p>
       </div>
       <div class="field">
         <label for="password">密碼</label>
-        <input id="password" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="至少 6 位" />
+        <input id="password" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="至少 6 位" aria-required="true" />
+        <p class="field-error" id="password-error" role="alert" hidden></p>
       </div>
       <p class="auth-note">建立帳號後，請先打開認證電郵，完成後先可以登入。</p>
       <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
@@ -690,15 +753,32 @@ function renderRegister() {
       </div>
     </form>`;
   app.innerHTML = shell(content, { noTab: true });
-  app.querySelector('#register-form')?.addEventListener('submit', async (e) => {
+  const form = app.querySelector('#register-form');
+  form?.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', () => paintFieldError(input, ''));
+  });
+  form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const name = String(fd.get('name') || '').trim();
+    const email = String(fd.get('email') || '').trim();
+    const password = String(fd.get('password') || '');
+    const problems = registerFieldErrors(name, email, password);
+    let first = null;
+    for (const key of ['name', 'email', 'password']) {
+      const input = e.target.querySelector(`#${key}`);
+      paintFieldError(input, problems[key]);
+      if (problems[key] && !first) first = input;
+    }
+    if (first) {
+      first.focus();
+      return;
+    }
     const submit = e.target.querySelector('button[type="submit"]');
     if (submit) submit.disabled = true;
     try {
       dismissToast();
-      const email = String(fd.get('email')).trim();
-      await register(String(fd.get('name')).trim(), email, String(fd.get('password')));
+      await register(name, email, password);
       go(`verify-sent?email=${encodeURIComponent(email)}`);
     } catch (err) {
       errToast(err, '註冊失敗');
@@ -919,10 +999,14 @@ async function renderHome(token = nextView(), options = {}) {
         <span aria-hidden="true">⌕</span>
         <input id="search" type="search" lang="zh-Hant" inputmode="search" enterkeyhint="search" placeholder="搜尋標題或描述…" value="${escapeAttr(ctx.q)}" />
       </div>
-      <div class="chips" id="cats">
-        ${CATEGORIES.map(
-          (c) => `<button type="button" class="chip ${c === ctx.cat ? 'active' : ''}" data-cat="${escapeAttr(c)}">${escapeHtml(c)}</button>`
-        ).join('')}
+      <div class="chip-row">
+        <button type="button" class="chip-nav prev" id="cat-prev" aria-label="向左睇分類">‹</button>
+        <div class="chips" id="cats">
+          ${CATEGORIES.map(
+            (c) => `<button type="button" class="chip ${c === ctx.cat ? 'active' : ''}" data-cat="${escapeAttr(c)}">${escapeHtml(c)}</button>`
+          ).join('')}
+        </div>
+        <button type="button" class="chip-nav next" id="cat-next" aria-label="向右睇分類">›</button>
       </div>
       <div class="price-filter">
         <span class="price-filter-label">價錢</span>
@@ -1027,7 +1111,50 @@ async function renderHome(token = nextView(), options = {}) {
     app.querySelector('#retry-load')?.addEventListener('click', () => {
       renderHome(nextView(), { forceSkeleton: true });
     });
+    bindCatScroller();
+    updateCatNav();
     app.querySelector('#cats .chip.active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+    updateCatNav();
+  }
+
+  function updateCatNav() {
+    const cats = app.querySelector('#cats');
+    const prev = app.querySelector('#cat-prev');
+    const next = app.querySelector('#cat-next');
+    if (!cats || !prev || !next) return;
+    const max = cats.scrollWidth - cats.clientWidth;
+    const overflow = max > 2;
+    prev.disabled = !overflow || cats.scrollLeft <= 2;
+    next.disabled = !overflow || cats.scrollLeft >= max - 2;
+  }
+
+  function bindCatScroller() {
+    const cats = app.querySelector('#cats');
+    const prev = app.querySelector('#cat-prev');
+    const next = app.querySelector('#cat-next');
+    if (!cats) return;
+    const step = () => Math.max(96, Math.round((cats.clientWidth || 200) * 0.75));
+    prev?.addEventListener('click', () => {
+      cats.scrollBy({ left: -step(), behavior: 'smooth' });
+    });
+    next?.addEventListener('click', () => {
+      cats.scrollBy({ left: step(), behavior: 'smooth' });
+    });
+    cats.addEventListener('scroll', updateCatNav, { passive: true });
+    const wheelTarget = cats.closest('.chip-row') || cats;
+    wheelTarget.addEventListener(
+      'wheel',
+      (e) => {
+        const max = cats.scrollWidth - cats.clientWidth;
+        if (max <= 1) return;
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (!delta) return;
+        const before = cats.scrollLeft;
+        cats.scrollLeft = Math.max(0, Math.min(max, cats.scrollLeft + delta));
+        if (cats.scrollLeft !== before) e.preventDefault();
+      },
+      { passive: false }
+    );
   }
 
   const sameQuery = () => {
@@ -1380,7 +1507,8 @@ function openOfferSheet(l) {
 
 function galleryHtml(l, shots) {
   const sold = isSold(l);
-  const index = shots.length ? Math.min(uiGallery.index, shots.length - 1) : 0;
+  const index = shots.length ? Math.min(Math.max(0, uiGallery.index), shots.length - 1) : 0;
+  uiGallery.index = index;
   if (!shots.length) {
     return `<div class="gallery ${sold ? 'sold' : ''}">
       <div class="gallery-stage" style="background:${escapeAttr(l.tone || '')}">
@@ -1408,7 +1536,7 @@ function galleryHtml(l, shots) {
         ${shots
           .map(
             (item, i) =>
-              `<button type="button" class="gallery-thumb ${i === index ? 'on' : ''}" data-photo="${i}" aria-label="第 ${i + 1} 張">${framedPhotoHtml(item.src, item.frame)}</button>`
+              `<button type="button" class="gallery-thumb ${i === index ? 'on' : ''}" data-photo="${i}" aria-label="第 ${i + 1} 張"${i === index ? ' aria-current="true"' : ''}>${framedPhotoHtml(item.src, item.frame)}</button>`
           )
           .join('')}
       </div>`
@@ -1423,16 +1551,18 @@ function bindGallery(shots) {
   if (!root) return;
   const show = (next) => {
     const len = shots.length;
+    if (!len) return;
     uiGallery.index = ((next % len) + len) % len;
-    const img = root.querySelector('.hero-img');
-    if (img) {
-      img.src = mediaSrc(shots[uiGallery.index].src);
-      paintPhotoFrame(img, shots[uiGallery.index].frame);
-    }
+    const shot = shots[uiGallery.index];
+    swapHero(root, shot);
     const count = root.querySelector('.gallery-count');
-    if (count) count.textContent = `${uiGallery.index + 1} / ${len}`;
+    const label = `${uiGallery.index + 1} / ${len}`;
+    if (count) count.textContent = label;
     root.querySelectorAll('.gallery-thumb').forEach((btn, i) => {
-      btn.classList.toggle('on', i === uiGallery.index);
+      const on = i === uiGallery.index;
+      btn.classList.toggle('on', on);
+      if (on) btn.setAttribute('aria-current', 'true');
+      else btn.removeAttribute('aria-current');
     });
   };
   root.querySelectorAll('[data-photo-step]').forEach((btn) => {
@@ -2028,7 +2158,7 @@ function bindListingShare(root, listing) {
   });
 }
 
-async function renderDetail(id, token = nextView()) {
+async function renderDetail(id, token = nextView(), { resetGallery = false } = {}) {
   const state = getState();
   let l = getListing(id);
   if (state.online) {
@@ -2062,7 +2192,7 @@ async function renderDetail(id, token = nextView()) {
     app.innerHTML = shell(content, { noTab: true, screenClass: thread?.id ? 'docked' : '' });
     return;
   }
-  if (uiGallery.id !== id) {
+  if (resetGallery || uiGallery.id !== id) {
     uiGallery.id = id;
     uiGallery.index = 0;
   }
@@ -4636,7 +4766,7 @@ async function route() {
       await renderHome(token);
       break;
     case 'detail':
-      await renderDetail(b, token);
+      await renderDetail(b, token, { resetGallery: true });
       break;
     case 'bargain':
       await renderBargain(b, token);
@@ -4716,6 +4846,8 @@ app.addEventListener('click', (e) => {
 });
 
 window.addEventListener('hashchange', () => {
+  if (hashChangeFromGo) hashChangeFromGo = false;
+  else navGeneration += 1;
   route();
 });
 
