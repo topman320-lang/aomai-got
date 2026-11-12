@@ -301,11 +301,14 @@ test('register cannot login until verify; resend rotates the link; old accounts 
   assert.equal(badPage.status, 400);
   const badHtml = await badPage.text();
   assert.match(badHtml, /未能認證/);
-  assert.match(badHtml, /如果你已經完成認證，可以直接返回登入。/);
-  assert.match(badHtml, /喺登入頁填寫註冊電郵，再撳「重寄認證信」。/);
-  assert.match(badHtml, /打開新寄出嘅認證信入面嘅連結。/);
+  assert.ok(badHtml.includes('呢個認證連結無效或已過期。'));
+  assert.ok(badHtml.includes('如果你已經完成認證，撳下面「返回登入」就可以。'));
+  assert.ok(badHtml.includes('如果未完成，唔使淨係喺 App 操作；網站同 App 嘅登入頁都可以重寄：'));
+  assert.ok(badHtml.includes('撳下面「返回登入」。'));
+  assert.ok(badHtml.includes('喺登入頁填寫註冊電郵，再撳「重寄認證信」。'));
+  assert.ok(badHtml.includes('打開新寄出嘅認證信，撳入面嘅連結。'));
   assert.match(badHtml, /<a href="\/#\/login">返回登入<\/a>/);
-  assert.doesNotMatch(badHtml, /App 入面/);
+  assert.equal(badHtml.includes('App 入面'), false);
 
   const missing = await fetch(`${api.base}/auth/verify`);
   assert.equal(missing.status, 400);
@@ -321,8 +324,8 @@ test('register cannot login until verify; resend rotates the link; old accounts 
   const again = await fetch(`${api.base}/auth/verify?token=${encodeURIComponent(created.data.verificationToken)}`);
   assert.equal(again.status, 400);
   const usedHtml = await again.text();
-  assert.match(usedHtml, /重寄認證信/);
-  assert.doesNotMatch(usedHtml, /App 入面/);
+  assert.ok(usedHtml.includes('喺登入頁填寫註冊電郵，再撳「重寄認證信」。'));
+  assert.equal(usedHtml.includes('App 入面'), false);
 
   const session = await postJson(api.base, '/api/auth/login', {
     email: 'new-user@example.com',
