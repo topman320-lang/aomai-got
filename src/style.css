@@ -1105,6 +1105,52 @@ html[data-shell="web"] .phone {
   color: var(--muted);
 }
 
+.password-form {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+
+.password-head .form-section {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+
+.password-head .photo-hint {
+  margin-top: 6px;
+}
+
+.password-form .field {
+  min-width: 0;
+}
+
+.password-form .field input,
+.password-form .actionbar {
+  min-width: 0;
+  max-width: 100%;
+  /* Keep a focused field or the submit button clear of the sticky title and tab bar. */
+  scroll-margin-top: calc(var(--pad-t) + 72px);
+  scroll-margin-bottom: calc(var(--tab-h) + var(--safe-b) + 24px);
+}
+
+/* Stay in the page flow. A fixed bar would cover the tab bar and the avatar
+   controls on short viewports (iPhone / Duo). */
+.password-form .actionbar {
+  position: static;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  transform: none;
+  padding: 8px 0 0;
+  border: 0;
+  z-index: auto;
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

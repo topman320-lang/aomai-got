@@ -1,4 +1,9 @@
 import { API_BASE, privacyUrl, supportUrl } from './api.js';
+import {
+  PASSWORD_UPDATED,
+  passwordChangeErrors,
+  passwordChangeFieldFor,
+} from './password-change.js';
 import { messagesPane } from './messages-view.js';
 import {
   concreteFrame,
@@ -66,6 +71,7 @@ import {
   refreshNotices,
   removeWant,
   updateProfile,
+  changePassword,
   refreshIncomingOffers,
   refreshListing,
   refreshListings,
@@ -4583,6 +4589,52 @@ async function renderMe(token = nextView()) {
 const PROFILE_NAME_MAX = 20;
 const PROFILE_BIO_MAX = 80;
 
+function bindPasswordForm(form) {
+  if (!form) return;
+  const fields = ['currentPassword', 'newPassword', 'confirmPassword'];
+  form.querySelectorAll('input[type="password"]').forEach((input) => {
+    input.addEventListener('input', () => paintFieldError(input, ''));
+  });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    dismissToast();
+    const fd = new FormData(form);
+    const currentPassword = String(fd.get('currentPassword') || '');
+    const newPassword = String(fd.get('newPassword') || '');
+    const confirmPassword = String(fd.get('confirmPassword') || '');
+    const problems = passwordChangeErrors(currentPassword, newPassword, confirmPassword);
+    let first = null;
+    for (const name of fields) {
+      const input = form.querySelector(`[name="${name}"]`);
+      paintFieldError(input, problems[name]);
+      if (problems[name] && !first) first = input;
+    }
+    if (first) {
+      first.focus();
+      return;
+    }
+    const submit = form.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
+    try {
+      const data = await changePassword({ currentPassword, newPassword, confirmPassword });
+      form.reset();
+      for (const name of fields) paintFieldError(form.querySelector(`[name="${name}"]`), '');
+      toast(data?.message || PASSWORD_UPDATED);
+    } catch (err) {
+      const message = err?.message || '未能更新密碼';
+      const field = passwordChangeFieldFor(message, err?.code);
+      const input = field ? form.querySelector(`[name="${field}"]`) : null;
+      if (input) {
+        paintFieldError(input, message);
+        input.focus();
+      }
+      errToast(err, '未能更新密碼');
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+  });
+}
+
 function renderProfile() {
   if (!requireAuth('me')) return;
   const me = getState().me;
@@ -4633,6 +4685,30 @@ function renderProfile() {
       <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
         <button class="btn ghost" type="button" data-go="me">取消</button>
         <button class="btn primary" type="submit">儲存</button>
+      </div>
+    </form>
+    <form class="form password-form" id="password-form" novalidate aria-labelledby="password-heading">
+      <div class="password-head">
+        <h2 class="form-section" id="password-heading">修改密碼</h2>
+        <p class="photo-hint">更新後仍然保持登入。</p>
+      </div>
+      <div class="field">
+        <label for="current-password">現時密碼</label>
+        <input id="current-password" name="currentPassword" type="password" autocomplete="current-password" required aria-required="true" />
+        <p class="field-error" id="current-password-error" role="alert" hidden></p>
+      </div>
+      <div class="field">
+        <label for="new-password">新密碼</label>
+        <input id="new-password" name="newPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="至少 6 位" aria-required="true" />
+        <p class="field-error" id="new-password-error" role="alert" hidden></p>
+      </div>
+      <div class="field">
+        <label for="confirm-password">確認新密碼</label>
+        <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="再輸入一次" aria-required="true" />
+        <p class="field-error" id="confirm-password-error" role="alert" hidden></p>
+      </div>
+      <div class="actionbar">
+        <button class="btn primary" type="submit">更新密碼</button>
       </div>
     </form>`;
 
@@ -4747,6 +4823,8 @@ function renderProfile() {
       if (btn) btn.disabled = false;
     }
   });
+
+  bindPasswordForm(app.querySelector('#password-form'));
 }
 
 /* ---------- Router ---------- */

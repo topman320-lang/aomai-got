@@ -153,6 +153,7 @@ export const AuthApi = {
   reset: (payload) => api('/api/auth/reset', { method: 'POST', body: payload }),
   me: () => api('/api/me', { auth: true }),
   updateMe: (payload) => api('/api/me', { method: 'PATCH', body: payload, auth: true }),
+  changePassword: (payload) => api('/api/me/password', { method: 'POST', body: payload, auth: true }),
 };
 
 export const ListingsApi = {
