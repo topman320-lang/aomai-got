@@ -721,6 +721,8 @@ function paintFieldError(input, message) {
   }
 }
 
+const REGISTER_CONSENT_ERROR = '請先同意隱私政策，並確認已年滿 16 歲';
+
 function registerFieldErrors(name, email, password) {
   return {
     name: !name ? '請填寫顯示名稱' : Array.from(name).length > 20 ? '顯示名稱最多 20 字' : '',
@@ -752,43 +754,76 @@ function renderRegister() {
         <input id="password" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="至少 6 位" aria-required="true" />
         <p class="field-error" id="password-error" role="alert" hidden></p>
       </div>
+      <div class="field">
+        <label class="check-row consent-row">
+          <input id="register-consent" name="consent" type="checkbox" aria-required="true" />
+          <span class="check-box" aria-hidden="true"></span>
+          <span class="check-text" id="register-consent-text">我已閱讀並同意<a class="consent-link" href="#/privacy" data-go="privacy">隱私政策</a>，並確認本人已年滿 16 歲。</span>
+        </label>
+        <p class="field-error" id="consent-error" role="alert" hidden></p>
+      </div>
       <p class="auth-note">建立帳號後，請先打開認證電郵，完成後先可以登入。</p>
       <div class="actionbar" style="position:static;transform:none;max-width:none;padding:8px 0 0;border:0">
         <button class="btn ghost" type="button" data-go="login">已有帳號</button>
-        <button class="btn primary" type="submit">建立帳號</button>
+        <button class="btn primary" type="submit" id="register-submit" disabled>建立帳號</button>
       </div>
     </form>`;
   app.innerHTML = shell(content, { noTab: true });
   const form = app.querySelector('#register-form');
+  const consentInput = form?.querySelector('#register-consent');
+  const submit = form?.querySelector('#register-submit');
+  const syncConsent = () => {
+    const on = Boolean(consentInput?.checked);
+    if (submit) submit.disabled = !on;
+    if (on) paintFieldError(consentInput, '');
+  };
+  syncConsent();
+  consentInput?.addEventListener('change', syncConsent);
   form?.querySelectorAll('input').forEach((input) => {
-    input.addEventListener('input', () => paintFieldError(input, ''));
+    input.addEventListener('input', () => {
+      paintFieldError(input, '');
+      if (input === consentInput) syncConsent();
+    });
   });
-  form?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
+  const showRegisterProblems = (formEl) => {
+    const fd = new FormData(formEl);
     const name = String(fd.get('name') || '').trim();
     const email = String(fd.get('email') || '').trim();
     const password = String(fd.get('password') || '');
     const problems = registerFieldErrors(name, email, password);
     let first = null;
     for (const key of ['name', 'email', 'password']) {
-      const input = e.target.querySelector(`#${key}`);
+      const input = formEl.querySelector(`#${key}`);
       paintFieldError(input, problems[key]);
       if (problems[key] && !first) first = input;
     }
-    if (first) {
-      first.focus();
-      return;
+    const agreed = Boolean(consentInput?.checked);
+    if (!agreed) {
+      paintFieldError(consentInput, REGISTER_CONSENT_ERROR);
+      if (!first) first = consentInput;
     }
-    const submit = e.target.querySelector('button[type="submit"]');
+    if (first) first.focus();
+    return { name, email, password, ok: !first };
+  };
+  // A disabled submit button swallows Enter, so show the same errors here.
+  form?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.target?.closest('a, button, textarea')) return;
+    if (consentInput?.checked) return;
+    e.preventDefault();
+    showRegisterProblems(form);
+  });
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const { name, email, password, ok } = showRegisterProblems(e.target);
+    if (!ok) return;
     if (submit) submit.disabled = true;
     try {
       dismissToast();
-      await register(name, email, password);
+      await register(name, email, password, true);
       go(`verify-sent?email=${encodeURIComponent(email)}`);
     } catch (err) {
       errToast(err, '註冊失敗');
-      if (submit) submit.disabled = false;
+      syncConsent();
     }
   });
 }

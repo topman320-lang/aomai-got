@@ -263,10 +263,30 @@ test('register cannot login until verify; resend rotates the link; old accounts 
   assert.equal(pending.data.message, '請先查收電郵完成認證');
   assert.equal(pending.data.token, undefined);
 
+  for (const consent of [undefined, false, 'true', 1]) {
+    const body = {
+      name: '阿輝',
+      email: 'no-consent@example.com',
+      password: 'secret1',
+    };
+    if (consent !== undefined) body.consent = consent;
+    const denied = await postJson(api.base, '/api/auth/register', body);
+    assert.equal(denied.res.status, 400, denied.text);
+    assert.equal(denied.data.error, 'CONSENT_REQUIRED');
+    assert.equal(denied.data.message, '請先同意隱私政策，並確認已年滿 16 歲');
+    assert.equal(denied.data.verificationToken, undefined);
+  }
+  const deniedStored = JSON.parse(fs.readFileSync(path.join(dataDir, 'aomai.json'), 'utf8'));
+  assert.equal(
+    deniedStored.users.some((user) => user.email === 'no-consent@example.com'),
+    false
+  );
+
   const created = await postJson(api.base, '/api/auth/register', {
     name: '阿輝',
     email: 'new-user@example.com',
     password: 'secret1',
+    consent: true,
   });
   assert.equal(created.res.status, 201, created.text);
   assert.equal(created.data.token, undefined);
@@ -277,8 +297,12 @@ test('register cannot login until verify; resend rotates the link; old accounts 
   const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'aomai.json'), 'utf8'));
   const row = stored.users.find((user) => user.email === 'new-user@example.com');
   assert.equal(row.emailVerified, false);
+  assert.equal(row.consent.policy, 'privacy-2026-11');
+  assert.equal(typeof row.consent.at, 'number');
+  assert.ok(Math.abs(Date.now() - row.consent.at) < 60_000);
   assert.notEqual(row.emailVerify.hash, created.data.verificationToken);
   assert.equal(Object.hasOwn(stored.users.find((user) => user.id === 'u-topman'), 'emailVerified'), false);
+  assert.equal(Object.hasOwn(stored.users.find((user) => user.id === 'u-topman'), 'consent'), false);
 
   const mailed = fs
     .readFileSync(outbox, 'utf8')
@@ -333,11 +357,14 @@ test('register cannot login until verify; resend rotates the link; old accounts 
   });
   assert.equal(session.res.status, 200, session.text);
   assert.equal(typeof session.data.token, 'string');
+  assert.equal(session.data.user.consent, undefined);
+  assert.equal(session.data.user.passwordHash, undefined);
 
   const second = await postJson(api.base, '/api/auth/register', {
     name: '小美',
     email: 'second@example.com',
     password: 'secret1',
+    consent: true,
   });
   assert.equal(second.res.status, 201, second.text);
   const firstToken = second.data.verificationToken;
@@ -378,6 +405,7 @@ test('register cannot login until verify; resend rotates the link; old accounts 
     name: '阿輝',
     email: 'new-user@example.com',
     password: 'secret1',
+    consent: true,
   });
   assert.equal(taken.res.status, 409);
 });
@@ -404,10 +432,19 @@ test('production register fails when mail is not configured', async (t) => {
   const guest = await fetch(`${api.base}/api/listings`);
   assert.equal(guest.status, 200);
 
+  const noConsent = await postJson(api.base, '/api/auth/register', {
+    name: '阿輝',
+    email: 'prod-user@example.com',
+    password: 'secret1',
+  });
+  assert.equal(noConsent.res.status, 400, noConsent.text);
+  assert.equal(noConsent.data.error, 'CONSENT_REQUIRED');
+
   const created = await postJson(api.base, '/api/auth/register', {
     name: '阿輝',
     email: 'prod-user@example.com',
     password: 'secret1',
+    consent: true,
   });
   assert.equal(created.res.status, 503, created.text);
   assert.equal(created.data.error, 'MAIL_NOT_CONFIGURED');

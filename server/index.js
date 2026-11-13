@@ -174,6 +174,9 @@ const LOGIN_UNVERIFIED_MESSAGE = '請先查收電郵完成認證';
 const RESEND_MESSAGE = '若此電郵已註冊且尚未認證，我們會再寄出認證信';
 const VERIFY_BAD_MESSAGE = '認證連結無效或已過期';
 const MAIL_FAILED_MESSAGE = '暫時未能寄出認證電郵，請稍後再試';
+/** Matches 隱私政策「最後更新：2026 年 11 月」. Recorded only for new accounts. */
+const PRIVACY_POLICY_ID = 'privacy-2026-11';
+const CONSENT_REQUIRED_MESSAGE = '請先同意隱私政策，並確認已年滿 16 歲';
 
 function readToken(value) {
   if (typeof value !== 'string') return '';
@@ -501,6 +504,9 @@ app.post('/api/auth/register', async (req, res) => {
   if (!isPlausibleEmail(email)) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入有效電郵' });
   }
+  if (req.body?.consent !== true) {
+    return res.status(400).json({ error: 'CONSENT_REQUIRED', message: CONSENT_REQUIRED_MESSAGE });
+  }
   try {
     assertCanSendMail();
   } catch {
@@ -519,6 +525,10 @@ app.post('/api/auth/register', async (req, res) => {
     bio: '澳門街坊',
     verified: false,
     emailVerified: false,
+    consent: {
+      policy: PRIVACY_POLICY_ID,
+      at: Date.now(),
+    },
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
   };

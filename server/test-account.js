@@ -19,7 +19,7 @@ export async function registerAndLogin(base, { name, email, password = 'secret1'
   const res = await fetch(`${base}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, email, password }),
+    body: JSON.stringify({ name, email, password, consent: true }),
   });
   const createdText = await res.text();
   assert.equal(res.status, 201, createdText);

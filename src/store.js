@@ -416,8 +416,8 @@ export async function login(email, password) {
 }
 
 /** Creates an unverified account. The caller must open the email before login. */
-export async function register(name, email, password) {
-  return AuthApi.register({ name, email, password });
+export async function register(name, email, password, consent) {
+  return AuthApi.register({ name, email, password, consent: consent === true });
 }
 
 export async function resendVerification(email) {
