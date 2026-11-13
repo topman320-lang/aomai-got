@@ -2626,6 +2626,43 @@ html[data-shell="web"] .gallery-stage {
   background: var(--soft);
 }
 
+/* Register consent. The row checkbox still covers the sentence so the tap
+   stays large on iPhone. The privacy link is lifted above that hit target. */
+.field label.check-row.consent-row {
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.field label.check-row.consent-row .check-box {
+  margin-top: 1px;
+}
+
+.field label.check-row.consent-row .check-text {
+  z-index: 3;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+.field label.check-row.consent-row .consent-link {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  touch-action: manipulation;
+}
+
+.field label.check-row.consent-row .consent-link:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
 .offer-form .btn {
   flex: none;
   width: 100%;
