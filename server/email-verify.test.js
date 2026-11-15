@@ -273,7 +273,7 @@ test('register cannot login until verify; resend rotates the link; old accounts 
     const denied = await postJson(api.base, '/api/auth/register', body);
     assert.equal(denied.res.status, 400, denied.text);
     assert.equal(denied.data.error, 'CONSENT_REQUIRED');
-    assert.equal(denied.data.message, '請先同意隱私政策，並確認已年滿 16 歲');
+    assert.equal(denied.data.message, '請先同意使用條款及隱私政策，並確認已年滿 16 歲');
     assert.equal(denied.data.verificationToken, undefined);
   }
   const deniedStored = JSON.parse(fs.readFileSync(path.join(dataDir, 'aomai.json'), 'utf8'));
@@ -298,6 +298,7 @@ test('register cannot login until verify; resend rotates the link; old accounts 
   const row = stored.users.find((user) => user.email === 'new-user@example.com');
   assert.equal(row.emailVerified, false);
   assert.equal(row.consent.policy, 'privacy-2026-11');
+  assert.equal(row.consent.terms, 'terms-2026-11');
   assert.equal(typeof row.consent.at, 'number');
   assert.ok(Math.abs(Date.now() - row.consent.at) < 60_000);
   assert.notEqual(row.emailVerify.hash, created.data.verificationToken);

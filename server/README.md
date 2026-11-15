@@ -18,7 +18,7 @@ From repo root: `npm run server` (after `npm run server:install` once).
 
 ## Accounts
 
-There is no built-in demo login. `POST /api/auth/register` creates an account with `emailVerified: false` and emails a one-time link (48 hours). The body must include `consent: true` (the registrant has read the privacy policy and is 16 or older). Anything else returns 400 `CONSENT_REQUIRED` and does not create an account. A new account stores `consent.policy` (`privacy-2026-11`, the November 2026 policy) and `consent.at`. The response does not include a session token. `POST /api/auth/login` rejects that account until `GET /auth/verify?token=` or `POST /api/auth/verify` marks it verified. Rows that have no `emailVerified` field (accounts created before this check, including current users) can still log in. Rows with no `consent` field are not asked to consent again.
+There is no built-in demo login. `POST /api/auth/register` creates an account with `emailVerified: false` and emails a one-time link (48 hours). The body must include `consent: true` (the registrant has read the terms and privacy policy and is 16 or older). Anything else returns 400 `CONSENT_REQUIRED` and does not create an account. A new account stores `consent.policy` (`privacy-2026-11`), `consent.terms` (`terms-2026-11`), and `consent.at`. The response does not include a session token. `POST /api/auth/login` rejects that account until `GET /auth/verify?token=` or `POST /api/auth/verify` marks it verified. Rows that have no `emailVerified` field (accounts created before this check, including current users) can still log in. Rows with no `consent` field are not asked to consent again. Login does not require a new terms checkbox.
 
 `POST /api/auth/resend-verification` sends another link only when the address is registered and still unverified. The JSON message is the same when the address is unknown. `POST /api/auth/forgot` emails a 30-minute `#/reset?token=` link when the address is registered and `RESEND_API_KEY` or `SMTP_URL` is set. The JSON message is the same either way, and the token is not returned. A mail failure is logged and still answers with that message. The same per-email and per-IP limits as resend apply. Signed-in password changes use `POST /api/me/password` and do not send that email. The current login token stays valid.
 
@@ -30,6 +30,7 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 - Uploads: `server/uploads/`, or `UPLOADS_DIR` when set.
 - Render Free cannot keep files across deploys. `render.yaml` uses the paid Starter plan and a 1 GB disk mounted at `/var/data`. Only paths under `/var/data` survive redeploys (`DATA_DIR=/var/data/db`, `UPLOADS_DIR=/var/data/uploads`).
 - Privacy: `GET /privacy`（contact `mogot.app@gmail.com`）
+- Terms: `GET /terms`（same mailbox; linked before login and registration）
 - Support: `GET /support`（same mailbox; App Store support URL）
 
 ## Env
@@ -56,7 +57,13 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
 | GET | `/privacy` | no | Public privacy policy. Contact `mogot.app@gmail.com` |
+| GET | `/terms` | no | Public terms. Same mailbox. Linked before login and registration |
 | GET | `/support` | no | Public support page. Same mailbox |
+| POST | `/api/me/delete` | yes | `{ password, confirm: true }`. Deletes the account. Wrong password or `confirm` not exactly `true` changes nothing |
+| POST | `/api/reports` | yes | `{ targetType, targetId, reason, detail? }`. `targetType` is `listing`, `message`, `review`, `offer`, or `user`. Stores the report without email addresses and emails `mogot.app@gmail.com` |
+| GET | `/api/blocks` | yes | People the caller has blocked |
+| POST | `/api/blocks` | yes | `{ userId }`. Hides that person's listings, messages, and offers from the caller and emails `mogot.app@gmail.com` |
+| DELETE | `/api/blocks/:userId` | yes | Removes the caller's block |
 | GET | `/auth/verify?token=` | no | One-time email verification page |
 | POST | `/api/auth/verify` | no | `{ token }` marks `emailVerified` |
 | POST | `/api/auth/resend-verification` | no | `{ email }`. Same message whether or not the address exists. Limited per email and IP |

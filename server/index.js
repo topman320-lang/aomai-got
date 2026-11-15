@@ -48,10 +48,23 @@ import {
   trustSummary,
 } from './trust.js';
 import { buildProposal, confirmProposal, findHandoff, handoffAccess, presentHandoff } from './handoff.js';
-import { addNotice, markNoticesRead, noticesFor, unreadNotices } from './notices.js';
+import { addNotice, markNoticesRead, noticesFor } from './notices.js';
 import { apnsCredentials, applyAlertPreference, deliverNoticePush, deviceAlertsOn, isApnsToken } from './push.js';
 import { filterBrowseListings, pageWindow } from './paging.js';
-import { privacyPage, supportPage, verifyResultPage } from './public-pages.js';
+import { TERMS_POLICY_ID, privacyPage, supportPage, termsPage, verifyResultPage } from './public-pages.js';
+import { deleteUserAccount, removeUploadFiles } from './account-delete.js';
+import {
+  applyMailResult,
+  blockedIdsFor,
+  createBlock,
+  createReport,
+  hasBlock,
+  noticeHiddenByBlock,
+  reasonById,
+  removeBlock,
+  safetyNoticeMail,
+  shouldSuppressNotice,
+} from './safety.js';
 import {
   RESEND_EMAIL_LIMIT,
   RESEND_IP_LIMIT,
@@ -176,7 +189,7 @@ const VERIFY_BAD_MESSAGE = '認證連結無效或已過期';
 const MAIL_FAILED_MESSAGE = '暫時未能寄出認證電郵，請稍後再試';
 /** Matches 隱私政策「最後更新：2026 年 11 月」. Recorded only for new accounts. */
 const PRIVACY_POLICY_ID = 'privacy-2026-11';
-const CONSENT_REQUIRED_MESSAGE = '請先同意隱私政策，並確認已年滿 16 歲';
+const CONSENT_REQUIRED_MESSAGE = '請先同意使用條款及隱私政策，並確認已年滿 16 歲';
 
 function readToken(value) {
   if (typeof value !== 'string') return '';
@@ -248,10 +261,22 @@ function avatarFromName(name = '') {
   return chars.length ? chars[0] : '用';
 }
 
-function presentUser(user, req) {
+function presentUser(user, req, viewerId = user?.id) {
   const base = publicUser(user, publicBaseFor(req));
   if (!base) return base;
-  return { ...base, trust: trustSummary(user.id, loadDb()) };
+  const db = loadDb();
+  return { ...base, trust: trustSummary(user.id, db, { excludeFromIds: blockedIdsFor(db, viewerId) }) };
+}
+
+async function deliverSafetyMail(payload) {
+  try {
+    const mail = safetyNoticeMail(payload);
+    await sendMail({ to: mail.to, subject: mail.subject, text: mail.text, html: mail.html });
+    return true;
+  } catch (err) {
+    console.error('[mail] safety notice failed', err?.code || 'MAIL_FAILED');
+    return false;
+  }
 }
 
 /** Bump last-active at most once a minute so profile hints stay honest. */
@@ -315,7 +340,7 @@ function offerDto(o, db, viewerId = '') {
     id: o.id,
     listingId: o.listingId,
     fromId: o.fromId,
-    fromName: from?.name || '',
+    fromName: from?.name || (o.fromId ? '已刪除帳號' : ''),
     amount: o.amount,
     meetup: o.meetup || '',
     message: o.message || '',
@@ -337,6 +362,7 @@ function rememberHandoff(db, row) {
 }
 
 function notifyUser(db, { userId, kind, title, body, href, refId }) {
+  if (shouldSuppressNotice(db, { userId, href, refId })) return null;
   const row = addNotice(db, {
     id: id('n-'),
     userId,
@@ -392,7 +418,7 @@ function messageDto(m, db, base, fromName) {
   return {
     id: m.id,
     fromId: m.fromId,
-    fromName: from?.name || '',
+    fromName: from?.name || (m.fromId ? '已刪除帳號' : ''),
     text: m.text || '',
     photos: absolutePhotos(Array.isArray(m.photos) ? m.photos : [], base),
     audio: presentAudio(m.audio, base),
@@ -417,7 +443,7 @@ function threadDto(thread, userId, db, req) {
     buyerId: thread.buyerId,
     sellerId: thread.sellerId,
     peerId: peerId || '',
-    peerName: peer?.name || '街坊',
+    peerName: peer?.name || (peerId ? '已刪除帳號' : '街坊'),
     peerAvatar: presentAvatar(peer?.avatar || '?', base),
     preview: thread.preview || messagePreviewText(msgs[msgs.length - 1]),
     time: relativeTime(thread.updatedAt || thread.createdAt),
@@ -468,11 +494,13 @@ function pushMessage(db, thread, fromId, text, photos = [], audio = null) {
   delete thread.sellerHiddenAt;
   thread.preview = body.split('\n')[0] || (voice ? '語音訊息' : '相片');
   thread.updatedAt = msg.createdAt;
+  const recipientId = fromId === thread.buyerId ? thread.sellerId : thread.buyerId;
+  const silenced = hasBlock(db, recipientId, fromId);
   if (fromId === thread.buyerId) {
-    thread.sellerUnread = true;
+    thread.sellerUnread = !silenced;
     thread.buyerUnread = false;
   } else {
-    thread.buyerUnread = true;
+    thread.buyerUnread = !silenced;
     thread.sellerUnread = false;
   }
   // bump thread
@@ -487,6 +515,10 @@ app.get('/privacy', (_req, res) => {
 
 app.get('/support', (_req, res) => {
   res.type('html').send(supportPage());
+});
+
+app.get('/terms', (_req, res) => {
+  res.type('html').send(termsPage());
 });
 
 app.get('/api/health', (_req, res) => {
@@ -527,6 +559,7 @@ app.post('/api/auth/register', async (req, res) => {
     emailVerified: false,
     consent: {
       policy: PRIVACY_POLICY_ID,
+      terms: TERMS_POLICY_ID,
       at: Date.now(),
     },
     createdAt: Date.now(),
@@ -759,6 +792,126 @@ app.post('/api/me/password', auth, (req, res) => {
   res.json({ ok: true, message: PASSWORD_UPDATED });
 });
 
+/** Password plus an explicit confirm flag, so a mis-tap cannot delete the account. */
+app.post('/api/me/delete', auth, (req, res) => {
+  if (req.body?.confirm !== true) {
+    return res.status(400).json({ error: 'CONFIRM_REQUIRED', message: '請再確認刪除帳號' });
+  }
+  const password = readPassword(req.body?.password);
+  if (!password) {
+    return res.status(400).json({ error: 'BAD_PASSWORD', message: PASSWORD_WRONG_CURRENT });
+  }
+  const db = loadDb();
+  const user = db.users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(401).json({ error: 'UNAUTHORIZED', message: '請先登入' });
+  let currentOk = false;
+  try {
+    currentOk = Boolean(user.passwordHash) && bcrypt.compareSync(password, user.passwordHash);
+  } catch {
+    currentOk = false;
+  }
+  if (!currentOk) {
+    return res.status(400).json({ error: 'BAD_PASSWORD', message: PASSWORD_WRONG_CURRENT });
+  }
+  const result = deleteUserAccount(db, user.id);
+  if (!result.ok) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到帳號' });
+  persist();
+  try {
+    removeUploadFiles(result.uploads);
+  } catch (err) {
+    console.error('[account] upload cleanup failed', err?.code || 'UNLINK_FAILED');
+  }
+  res.json({ ok: true, message: '帳號已刪除' });
+});
+
+app.get('/api/blocks', auth, (req, res) => {
+  const db = loadDb();
+  const base = publicBaseFor(req);
+  const blocks = (db.blocks || [])
+    .filter((row) => row && row.blockerId === req.user.id)
+    .map((row) => {
+      const person = db.users.find((u) => u.id === row.blockedId);
+      return {
+        userId: row.blockedId,
+        name: person?.name || '已刪除帳號',
+        avatar: presentAvatar(person?.avatar || '封', base),
+        since: row.createdAt,
+      };
+    });
+  res.json({ blocks });
+});
+
+app.post('/api/blocks', auth, async (req, res) => {
+  if (!allowRate(`block:${req.user.id}`, 30, 60 * 60 * 1000)) {
+    return res.status(429).json({ error: 'RATE_LIMITED', message: '請稍後再試' });
+  }
+  const db = loadDb();
+  const created = createBlock(db, { id: id('blk-'), blocker: req.user, blockedId: req.body?.userId });
+  if (!created.ok) return res.status(created.status).json({ error: created.error, message: created.message });
+  persist();
+  if (created.created) {
+    const target = db.users.find((u) => u.id === created.block.blockedId);
+    const mailed = await deliverSafetyMail({
+      kind: 'block',
+      reporterName: req.user.name,
+      reporterId: req.user.id,
+      reporterEmail: req.user.email || '',
+      targetName: target?.name || created.block.blockedName,
+      targetId: created.block.blockedId,
+      targetEmail: target?.email || '',
+      at: created.block.createdAt,
+    });
+    applyMailResult(created.block, mailed);
+    persist();
+  }
+  res.status(created.created ? 201 : 200).json({
+    ok: true,
+    blockedId: created.block.blockedId,
+    message: '已封鎖。對方的刊登同訊息已從你的列表移除',
+  });
+});
+
+app.delete('/api/blocks/:userId', auth, (req, res) => {
+  const db = loadDb();
+  removeBlock(db, req.user.id, req.params.userId);
+  persist();
+  res.json({ ok: true, message: '已解除封鎖' });
+});
+
+app.post('/api/reports', auth, async (req, res) => {
+  if (!allowRate(`report:${req.user.id}`, 20, 60 * 60 * 1000)) {
+    return res.status(429).json({ error: 'RATE_LIMITED', message: '檢舉太頻密，請稍後再試' });
+  }
+  const db = loadDb();
+  const created = createReport(db, {
+    id: id('rep-'),
+    reporter: req.user,
+    targetType: req.body?.targetType,
+    targetId: req.body?.targetId,
+    reason: req.body?.reason,
+    detail: req.body?.detail,
+  });
+  if (!created.ok) return res.status(created.status).json({ error: created.error, message: created.message });
+  persist();
+  const target = db.users.find((u) => u.id === created.report.targetUserId);
+  const mailed = await deliverSafetyMail({
+    kind: 'report',
+    reporterName: req.user.name,
+    reporterId: req.user.id,
+    reporterEmail: req.user.email || '',
+    targetName: created.report.targetName,
+    targetId: created.report.targetUserId,
+    targetEmail: target?.email || '',
+    reasonLabel: reasonById(created.report.reason)?.label || created.report.reason,
+    detail: created.report.detail,
+    snapshot: created.report.snapshot,
+    at: created.report.createdAt,
+  });
+  applyMailResult(created.report, mailed);
+  persist();
+  res.status(201).json({ ok: true, message: '已送出檢舉，我們會跟進' });
+});
+
 function priceBound(value) {
   if (value === undefined || value === null) return null;
   const s = String(value).trim();
@@ -775,7 +928,7 @@ app.get('/api/listings', optionalAuth, (req, res) => {
   if (mine && !req.user) {
     return res.status(401).json({ error: 'UNAUTHORIZED', message: '請先登入' });
   }
-  const list = filterBrowseListings(db.listings, {
+  let list = filterBrowseListings(db.listings, {
     q: req.query.q,
     category: req.query.category,
     min: priceBound(req.query.min),
@@ -784,6 +937,10 @@ app.get('/api/listings', optionalAuth, (req, res) => {
     includeSold: mine,
   });
   const viewerId = req.user?.id || '';
+  if (!mine && viewerId) {
+    const hidden = blockedIdsFor(db, viewerId);
+    if (hidden.size) list = list.filter((l) => !hidden.has(l.sellerId));
+  }
   const paged = pageWindow(list, req.query);
   if (paged.error) return res.status(400).json({ error: 'INVALID_INPUT', message: '頁數不正確' });
   res.json({
@@ -800,6 +957,13 @@ app.get('/api/listings/:id', optionalAuth, (req, res) => {
   const db = loadDb();
   const l = db.listings.find((x) => x.id === req.params.id);
   if (!l) return res.status(404).json({ error: 'NOT_FOUND' });
+  if (req.user && hasBlock(db, req.user.id, l.sellerId)) {
+    return res.status(403).json({
+      error: 'BLOCKED',
+      message: '你已封鎖這位街坊，這件刊登已隱藏',
+      sellerId: l.sellerId,
+    });
+  }
   res.json({ listing: listingDto(l, db, publicBaseFor(req), req.user?.id || '') });
 });
 
@@ -1022,6 +1186,9 @@ app.post('/api/listings/:id/want', auth, (req, res) => {
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND' });
   if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  if (hasBlock(db, req.user.id, listing.sellerId)) {
+    return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
+  }
   const exists = db.wants.find((w) => w.userId === req.user.id && w.listingId === listing.id);
   if (!exists) {
     db.wants.unshift({ userId: req.user.id, listingId: listing.id, createdAt: Date.now() });
@@ -1038,6 +1205,9 @@ app.post('/api/listings/:id/thread', auth, (req, res) => {
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
   if (listing.sellerId === req.user.id) {
     return res.status(400).json({ error: 'OWN_LISTING', message: '不能私訊自己的刊登' });
+  }
+  if (hasBlock(db, req.user.id, listing.sellerId)) {
+    return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
   }
   const existing = db.threads.find(
     (t) => t.listingId === listing.id && t.buyerId === req.user.id && t.sellerId === listing.sellerId
@@ -1066,7 +1236,7 @@ app.get('/api/wants', auth, (req, res) => {
     .map((w) => w.listingId)
     .filter((lid) => {
       const row = db.listings.find((l) => l.id === lid);
-      return row && !row.removedAt;
+      return row && !row.removedAt && !hasBlock(db, req.user.id, row.sellerId);
     });
   const listings = ids
     .map((lid) => db.listings.find((l) => l.id === lid))
@@ -1084,6 +1254,9 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   if (listing.sold) return res.status(400).json({ error: 'LISTING_SOLD', message: '此商品已售出' });
   if (listing.sellerId === req.user.id) {
     return res.status(400).json({ error: 'OWN_LISTING', message: '不能對自己的刊登議價' });
+  }
+  if (hasBlock(db, req.user.id, listing.sellerId)) {
+    return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
   }
   const amount = Number(req.body?.amount);
   const meetup = String(req.body?.meetup || '賣家地點').trim();
@@ -1161,9 +1334,13 @@ app.get('/api/listings/:id/offers', auth, (req, res) => {
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
   const isSeller = listing.sellerId === req.user.id;
+  if (!isSeller && hasBlock(db, req.user.id, listing.sellerId)) {
+    return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
+  }
   const offers = db.offers
     .filter((o) => o.listingId === listing.id && (isSeller || o.fromId === req.user.id))
     .filter((o) => !offerHiddenFor(o, req.user.id, listing))
+    .filter((o) => !hasBlock(db, req.user.id, o.fromId))
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
@@ -1173,6 +1350,10 @@ app.get('/api/offers/mine', auth, (req, res) => {
   const db = loadDb();
   const offers = db.offers
     .filter((o) => o.fromId === req.user.id && !o.buyerHiddenAt)
+    .filter((o) => {
+      const listing = db.listings.find((l) => l.id === o.listingId);
+      return !listing || !hasBlock(db, req.user.id, listing.sellerId);
+    })
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
@@ -1182,7 +1363,7 @@ app.get('/api/offers/incoming', auth, (req, res) => {
   const db = loadDb();
   const mine = new Set(db.listings.filter((l) => l.sellerId === req.user.id).map((l) => l.id));
   const offers = db.offers
-    .filter((o) => mine.has(o.listingId) && !o.sellerHiddenAt)
+    .filter((o) => mine.has(o.listingId) && !o.sellerHiddenAt && !hasBlock(db, req.user.id, o.fromId))
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
@@ -1420,6 +1601,10 @@ app.get('/api/threads', auth, (req, res) => {
   const db = loadDb();
   const mine = db.threads
     .filter((t) => (t.buyerId === req.user.id || t.sellerId === req.user.id) && !threadHiddenFor(t, req.user.id))
+    .filter((t) => {
+      const peerId = t.buyerId === req.user.id ? t.sellerId : t.buyerId;
+      return !hasBlock(db, req.user.id, peerId);
+    })
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .map((t) => threadDto(t, req.user.id, db, req));
   res.json({ threads: mine });
@@ -1431,6 +1616,14 @@ app.get('/api/threads/:id', auth, (req, res) => {
   if (!thread) return res.status(404).json({ error: 'NOT_FOUND' });
   if (thread.buyerId !== req.user.id && thread.sellerId !== req.user.id) {
     return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+  const peerId = thread.buyerId === req.user.id ? thread.sellerId : thread.buyerId;
+  if (hasBlock(db, req.user.id, peerId)) {
+    return res.status(403).json({
+      error: 'BLOCKED',
+      message: '你已封鎖這位街坊，對話已隱藏',
+      peerId,
+    });
   }
   if (thread.buyerId === req.user.id) thread.buyerUnread = false;
   else thread.sellerUnread = false;
@@ -1445,6 +1638,10 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   if (!thread) return res.status(404).json({ error: 'NOT_FOUND' });
   if (thread.buyerId !== req.user.id && thread.sellerId !== req.user.id) {
     return res.status(403).json({ error: 'FORBIDDEN' });
+  }
+  const peerId = thread.buyerId === req.user.id ? thread.sellerId : thread.buyerId;
+  if (hasBlock(db, req.user.id, peerId)) {
+    return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
   }
   const text = String(req.body?.text || '').trim();
   const incomingPhotos = req.body?.photos;
@@ -1472,7 +1669,6 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   if (!msg) {
     return res.status(400).json({ error: 'INVALID_INPUT', message: '請輸入訊息、加上相片或錄音' });
   }
-  const peerId = req.user.id === thread.buyerId ? thread.sellerId : thread.buyerId;
   notifyUser(db, {
     userId: peerId,
     kind: 'message',
@@ -1536,12 +1732,14 @@ app.delete('/api/threads/:id/messages/:messageId', auth, (req, res) => {
 
 app.get('/api/badges', auth, (req, res) => {
   const db = loadDb();
-  res.json({ ...badgeCountsFor(db, req.user.id), notices: unreadNotices(db, req.user.id) });
+  const notices = noticesFor(db, req.user.id).filter((n) => !noticeHiddenByBlock(db, req.user.id, n) && !n.read).length;
+  res.json({ ...badgeCountsFor(db, req.user.id), notices });
 });
 
 app.get('/api/notifications', auth, (req, res) => {
   const db = loadDb();
-  res.json({ notices: noticesFor(db, req.user.id), unread: unreadNotices(db, req.user.id) });
+  const notices = noticesFor(db, req.user.id).filter((n) => !noticeHiddenByBlock(db, req.user.id, n));
+  res.json({ notices, unread: notices.filter((n) => !n.read).length });
 });
 
 app.post('/api/notifications/read', auth, (req, res) => {
@@ -1549,7 +1747,8 @@ app.post('/api/notifications/read', auth, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
   markNoticesRead(db, req.user.id, ids);
   persist();
-  res.json({ notices: noticesFor(db, req.user.id), unread: unreadNotices(db, req.user.id) });
+  const notices = noticesFor(db, req.user.id).filter((n) => !noticeHiddenByBlock(db, req.user.id, n));
+  res.json({ notices, unread: notices.filter((n) => !n.read).length });
 });
 
 app.get('/api/push/status', auth, (req, res) => {
@@ -1624,18 +1823,23 @@ app.get('/api/users/:id', optionalAuth, (req, res) => {
   const db = loadDb();
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這位街坊' });
-  const profile = presentUser(user, req);
+  const viewerId = req.user?.id || '';
+  const profile = presentUser(user, req, viewerId);
   delete profile.email;
+  if (viewerId && hasBlock(db, viewerId, user.id)) {
+    return res.json({ user: profile, listings: [], reviews: [], blocked: true });
+  }
+  const hidden = blockedIdsFor(db, viewerId);
   const listings = db.listings
     .filter((l) => l.sellerId === user.id && !l.removedAt)
     .sort((a, b) => b.createdAt - a.createdAt)
-    .map((l) => listingDto(l, db, publicBaseFor(req), req.user?.id || ''));
+    .map((l) => listingDto(l, db, publicBaseFor(req), viewerId));
   const reviews = (db.reviews || [])
-    .filter((r) => r.toId === user.id && isActiveReview(r, db))
+    .filter((r) => r.toId === user.id && isActiveReview(r, db) && !hidden.has(r.fromId))
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 20)
     .map((r) => presentReview(r, db));
-  res.json({ user: profile, listings, reviews });
+  res.json({ user: profile, listings, reviews, blocked: false });
 });
 
 app.post('/api/listings/:id/reviews', auth, (req, res) => {
@@ -1703,6 +1907,7 @@ app.get('*', (req, res, next) => {
     req.path.startsWith('/uploads') ||
     req.path === '/privacy' ||
     req.path === '/support' ||
+    req.path === '/terms' ||
     req.path === '/auth/verify'
   ) {
     return next();
@@ -1720,5 +1925,6 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`澳賣GOT API http://127.0.0.1:${PORT}`);
   console.log(`Privacy  http://127.0.0.1:${PORT}/privacy`);
+  console.log(`Terms    http://127.0.0.1:${PORT}/terms`);
   console.log(`Support  http://127.0.0.1:${PORT}/support`);
 });

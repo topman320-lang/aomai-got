@@ -1,4 +1,4 @@
-import { API_BASE, privacyUrl, supportUrl } from './api.js';
+import { API_BASE, privacyUrl, supportUrl, termsUrl } from './api.js';
 import {
   PASSWORD_UPDATED,
   passwordChangeErrors,
@@ -48,8 +48,10 @@ import {
   bootstrap,
   confirmHandoff,
   confirmReceipt,
+  blockUser,
   deleteListing,
   deleteMessage,
+  deleteMyAccount,
   hideOffer,
   hideThread,
   fetchHomeListings,
@@ -68,6 +70,7 @@ import {
   markThreadRead,
   priceHint,
   refreshBadges,
+  refreshBlocks,
   refreshNotices,
   removeWant,
   updateProfile,
@@ -80,6 +83,7 @@ import {
   refreshWants,
   openListingThread,
   register,
+  reportContent,
   resendVerification,
   respondToOffer,
   updateListing,
@@ -88,6 +92,7 @@ import {
   saveHandoff,
   sendMessage,
   setSold,
+  unblockUser,
   stats,
 } from './store.js';
 
@@ -658,6 +663,7 @@ function renderLogin() {
     </div>
     ${offlineBanner()}
     <form class="form" id="login-form">
+      <p class="auth-note legal-note">登入前請先閱讀<a class="legal-link" href="#/terms?from=login" data-go="terms?from=login">使用條款</a>。</p>
       <div class="field">
         <label for="email">電郵</label>
         <input id="email" name="email" type="email" autocomplete="username" required placeholder="you@example.com" />
@@ -721,7 +727,7 @@ function paintFieldError(input, message) {
   }
 }
 
-const REGISTER_CONSENT_ERROR = '請先同意隱私政策，並確認已年滿 16 歲';
+const REGISTER_CONSENT_ERROR = '請先同意使用條款及隱私政策，並確認已年滿 16 歲';
 
 function registerFieldErrors(name, email, password) {
   return {
@@ -739,6 +745,7 @@ function renderRegister() {
     </header>
     ${offlineBanner()}
     <form class="form" id="register-form" novalidate>
+      <p class="auth-note legal-note">建立帳號前，請先閱讀<a class="legal-link" href="#/terms?from=register" data-go="terms?from=register">使用條款</a>同<a class="legal-link" href="#/privacy?from=register" data-go="privacy?from=register">隱私政策</a>。</p>
       <div class="field">
         <label for="name">顯示名稱</label>
         <input id="name" name="name" lang="zh-Hant" required maxlength="20" autocomplete="nickname" placeholder="例如：阿輝" aria-required="true" />
@@ -758,7 +765,7 @@ function renderRegister() {
         <label class="check-row consent-row">
           <input id="register-consent" name="consent" type="checkbox" aria-required="true" />
           <span class="check-box" aria-hidden="true"></span>
-          <span class="check-text" id="register-consent-text">我已閱讀並同意<a class="consent-link" href="#/privacy" data-go="privacy">隱私政策</a>，並確認本人已年滿 16 歲。</span>
+          <span class="check-text" id="register-consent-text">我已閱讀並同意<a class="consent-link" href="#/terms?from=register" data-go="terms?from=register">使用條款</a>及<a class="consent-link" href="#/privacy?from=register" data-go="privacy?from=register">隱私政策</a>，並確認本人已年滿 16 歲。</span>
         </label>
         <p class="field-error" id="consent-error" role="alert" hidden></p>
       </div>
@@ -959,10 +966,17 @@ function renderReset() {
   });
 }
 
+const HOSTED_BACK = new Set(['login', 'register', 'forgot', 'me']);
+
+function hostedBackTarget() {
+  const from = parseHash().params.from;
+  return HOSTED_BACK.has(from) ? from : 'me';
+}
+
 function renderHostedPage({ title, src }) {
   const content = `
     <header class="topbar">
-      <button class="back" type="button" data-go="me" aria-label="返回">←</button>
+      <button class="back" type="button" data-go="${escapeAttr(hostedBackTarget())}" aria-label="返回">←</button>
       <h1>${escapeHtml(title)}</h1>
     </header>
     <div class="privacy-box">
@@ -975,6 +989,10 @@ function renderHostedPage({ title, src }) {
 
 function renderPrivacy() {
   renderHostedPage({ title: '隱私政策', src: privacyUrl() });
+}
+
+function renderTerms() {
+  renderHostedPage({ title: '使用條款', src: termsUrl() });
 }
 
 function renderSupport() {
@@ -1487,6 +1505,189 @@ function confirmAction({ title, message, confirmLabel = '確定', cancelLabel = 
   });
 }
 
+const REPORT_REASONS = [
+  ['spam', '垃圾或廣告'],
+  ['scam', '詐騙或不實內容'],
+  ['harassment', '騷擾、仇恨或冒犯'],
+  ['sexual', '不雅內容'],
+  ['other', '其他'],
+];
+
+function safetyLinks({
+  reportType = '',
+  reportId = '',
+  blockId = '',
+  blockName = '',
+  reportLabel = '檢舉',
+  blockLabel = '封鎖這位街坊',
+} = {}) {
+  if (!isLoggedIn()) return '';
+  const meId = getState().me?.id || '';
+  const report =
+    reportType && reportId && reportId !== meId
+      ? `<button type="button" class="text-link safety-link" data-report-type="${escapeAttr(reportType)}" data-report-id="${escapeAttr(reportId)}">${escapeHtml(reportLabel)}</button>`
+      : '';
+  const block =
+    blockId && blockId !== meId
+      ? `<button type="button" class="text-link safety-link" data-block-user="${escapeAttr(blockId)}" data-block-name="${escapeAttr(blockName || '這位街坊')}">${escapeHtml(blockLabel)}</button>`
+      : '';
+  if (!report && !block) return '';
+  return `<div class="safety-row">${report}${block}</div>`;
+}
+
+function openReportSheet({ type, id }) {
+  if (!type || !id) return;
+  if (!requireAuth(parseHash().parts.filter(Boolean).join('/') || 'home')) return;
+  closeOfferSheet();
+  const overlay = document.createElement('div');
+  overlay.className = 'offer-overlay';
+  overlay.innerHTML = `
+    <div class="offer-sheet safety-sheet" role="dialog" aria-modal="true" aria-label="檢舉">
+      <div class="offer-sheet-head">
+        <h2>檢舉</h2>
+        <button type="button" class="offer-close" data-report-close aria-label="關閉">×</button>
+      </div>
+      <p class="offer-ask">請選擇原因。我們會收到通知並跟進。補充可以留空。</p>
+      <div class="safety-reasons">
+        ${REPORT_REASONS.map(
+          ([reasonId, label]) =>
+            `<button type="button" data-reason="${escapeAttr(reasonId)}" aria-pressed="false">${escapeHtml(label)}</button>`
+        ).join('')}
+      </div>
+      <div class="safety-detail">
+        <label for="report-detail">補充（可留空）</label>
+        <textarea id="report-detail" maxlength="200" placeholder="發生了什麼"></textarea>
+      </div>
+      <div class="confirm-actions">
+        <button class="btn ghost" type="button" data-report-close>取消</button>
+        <button class="btn primary" type="button" id="report-submit">送出檢舉</button>
+      </div>
+    </div>`;
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    document.removeEventListener('keydown', onKey);
+    overlay.remove();
+    document.body.classList.remove('offer-open');
+  };
+  const onKey = (e) => {
+    if (e.key === 'Escape') finish();
+  };
+  document.body.appendChild(overlay);
+  document.body.classList.add('offer-open');
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) finish();
+  });
+  overlay.querySelectorAll('[data-report-close]').forEach((btn) => {
+    btn.addEventListener('click', finish);
+  });
+  overlay.querySelectorAll('[data-reason]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      overlay.querySelectorAll('[data-reason]').forEach((other) => {
+        other.setAttribute('aria-pressed', other === btn ? 'true' : 'false');
+      });
+    });
+  });
+  overlay.querySelector('#report-submit')?.addEventListener('click', async () => {
+    const reason = overlay.querySelector('[data-reason][aria-pressed="true"]')?.getAttribute('data-reason') || '';
+    const detail = overlay.querySelector('#report-detail')?.value || '';
+    if (!reason) {
+      toast('請選擇檢舉原因');
+      return;
+    }
+    const submit = overlay.querySelector('#report-submit');
+    if (submit) submit.disabled = true;
+    try {
+      const data = await reportContent({ targetType: type, targetId: id, reason, detail });
+      finish();
+      toast(data?.message || '已送出檢舉，我們會跟進');
+    } catch (err) {
+      if (submit) submit.disabled = false;
+      errToast(err, '未能送出檢舉');
+    }
+  });
+}
+
+function leaveBlockedScreen() {
+  const screen = parseHash().parts[0];
+  if (screen === 'chat') go('messages');
+  else if (screen === 'detail' || screen === 'user' || screen === 'bargain') go('home');
+  else route();
+}
+
+async function confirmBlock(userId, name) {
+  const id = String(userId || '');
+  if (!id) return;
+  if (!requireAuth(parseHash().parts.filter(Boolean).join('/') || 'home')) return;
+  if (id === getState().me?.id) {
+    toast('不能封鎖自己');
+    return;
+  }
+  const ok = await confirmAction({
+    title: '封鎖這位街坊',
+    message: `封鎖「${name || '這位街坊'}」後，對方的刊登同訊息會即時從你的列表移除，並通知平台管理員。你可以在「已封鎖的街坊」解除封鎖。`,
+    confirmLabel: '封鎖',
+    cancelLabel: '取消',
+  });
+  if (!ok) return;
+  try {
+    await blockUser(id);
+    leaveBlockedScreen();
+    toast('已封鎖。對方的刊登同訊息已從你的列表移除');
+  } catch (err) {
+    errToast(err, '未能封鎖');
+  }
+}
+
+function bindSafety(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-report-type]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openReportSheet({
+        type: btn.getAttribute('data-report-type'),
+        id: btn.getAttribute('data-report-id'),
+      });
+    });
+  });
+  root.querySelectorAll('[data-block-user]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      confirmBlock(btn.getAttribute('data-block-user'), btn.getAttribute('data-block-name') || '這位街坊');
+    });
+  });
+}
+
+function blockedListingScreen(sellerId) {
+  const content = `
+    <header class="topbar">
+      <button class="back" type="button" data-go="home" aria-label="返回">←</button>
+      <h1>商品詳情</h1>
+    </header>
+    <div class="empty">
+      <p>你已封鎖這位街坊，這件刊登已隱藏。</p>
+      ${
+        sellerId
+          ? `<button class="btn ghost retry-btn" type="button" id="unblock-here">解除封鎖</button>`
+          : ''
+      }
+    </div>`;
+  app.innerHTML = shell(content, { noTab: true });
+  app.querySelector('#unblock-here')?.addEventListener('click', async () => {
+    try {
+      await unblockUser(sellerId);
+      toast('已解除封鎖');
+      route();
+    } catch (err) {
+      errToast(err, '未能解除封鎖');
+    }
+  });
+}
+
 function closeOfferSheet() {
   document.querySelector('.offer-overlay')?.remove();
   document.body.classList.remove('offer-open');
@@ -1746,6 +1947,17 @@ function offerStatusHtml(offer, { role, showThreadLink = true, showButtons = tru
   const place = offer.meetup
     ? `<div class="meta">${escapeHtml(offer.meetup)}${offer.message ? ` · ${escapeHtml(offer.message)}` : ''}</div>`
     : '';
+  const safety =
+    role === 'seller' && offer.fromId && offer.fromId !== getState().me?.id
+      ? safetyLinks({
+          reportType: 'offer',
+          reportId: offer.id,
+          blockId: offer.fromId,
+          blockName: offer.fromName || '這位街坊',
+          reportLabel: '檢舉',
+          blockLabel: '封鎖',
+        })
+      : '';
   return `
     <div class="offer-status" data-offer-id="${escapeAttr(offer.id)}" data-offer-role="${escapeAttr(role)}">
       <div class="offer-status-top">
@@ -1757,6 +1969,7 @@ function offerStatusHtml(offer, { role, showThreadLink = true, showButtons = tru
       ${view.sub ? `<div class="meta">${escapeHtml(view.sub)}</div>` : ''}
       ${extra}
       ${place}
+      ${safety}
       ${actions.length ? `<div class="offer-actions">${actions.join('')}</div>` : ''}
       ${counterForm}
       ${handoffCardHtml(offer, role)}
@@ -1975,16 +2188,21 @@ function reviewBlock(listing) {
   const reviews = Array.isArray(listing.reviews) ? listing.reviews : [];
   const list = reviews.length
     ? reviews
-        .map(
-          (r) => `
+        .map((r) => {
+          const own = isLoggedIn() && r.fromId === getState().me?.id;
+          const report = !own
+            ? safetyLinks({ reportType: 'review', reportId: r.id, reportLabel: '檢舉' })
+            : '';
+          return `
         <div class="review">
           <div class="review-top">
             <span>${starMarks(r.stars)}</span>
             <span class="meta">${escapeHtml(r.fromName || '街坊')}${r.time ? ` · ${escapeHtml(r.time)}` : ''}</span>
           </div>
           ${r.text ? `<p>${escapeHtml(r.text)}</p>` : ''}
-        </div>`
-        )
+          ${report}
+        </div>`;
+        })
         .join('')
     : '<p class="meta">這筆還沒有街坊評價</p>';
   const form = listing.canReview
@@ -2205,7 +2423,12 @@ async function renderDetail(id, token = nextView(), { resetGallery = false } = {
   if (state.online) {
     try {
       l = await refreshListing(id);
-    } catch {
+    } catch (err) {
+      if (err?.code === 'BLOCKED') {
+        if (!isView(token)) return;
+        blockedListingScreen(err.body?.sellerId || '');
+        return;
+      }
       /* use cache */
     }
   }
@@ -2353,6 +2576,17 @@ async function renderDetail(id, token = nextView(), { resetGallery = false } = {
       ${isSeller ? `<button class="text-link listing-edit" type="button" data-go="edit/${escapeAttr(l.id)}">編輯刊登</button>` : ''}
       <div class="trust-row">${trustHtml(l)}</div>
       <p class="trust-note">鄰里二手 · 成色由賣家自行標示。平台不提供鑑定，也不代為寄倉。</p>
+      ${
+        isSeller
+          ? ''
+          : safetyLinks({
+              reportType: 'listing',
+              reportId: l.id,
+              blockId: l.sellerId,
+              blockName: l.sellerName,
+              reportLabel: '檢舉這件刊登',
+            })
+      }
     </section>
     ${offerNote}
     ${sellerOffers}
@@ -2390,6 +2624,7 @@ async function renderDetail(id, token = nextView(), { resetGallery = false } = {
     </div>`;
 
   app.innerHTML = shell(content, { noTab: true, screenClass: 'docked' });
+  bindSafety(app);
   bindGallery(shots);
   bindListingShare(app, l);
   bindOfferStatus(app, { onDone: () => renderDetail(id) });
@@ -3846,7 +4081,7 @@ async function renderChat(threadId, token = nextView()) {
           const voiceHtml = voiceBubbleHtml(m);
           const deleteHtml = mine
             ? `<button type="button" class="bubble-delete" data-delete-message="${escapeAttr(m.id)}">刪除</button>`
-            : '';
+            : `<button type="button" class="bubble-delete" data-report-type="message" data-report-id="${escapeAttr(m.id)}">檢舉</button>`;
           return `
           <div class="bubble-row ${mine ? 'me' : 'peer'}">
             <div class="bubble">
@@ -3879,6 +4114,14 @@ async function renderChat(threadId, token = nextView()) {
       ? `<button class="btn ghost chat-bargain-link" type="button" data-go="bargain/${l.id}">出價</button>`
       : '';
   const chatTip = offer?.canHandoff ? '' : scamTipHtml('chat-tip');
+  const latestPeer = [...messages].reverse().find((m) => m.fromId && m.fromId !== meId);
+  const chatSafety = safetyLinks({
+    reportType: latestPeer ? 'message' : 'user',
+    reportId: latestPeer?.id || thread.peerId,
+    blockId: thread.peerId,
+    blockName: thread.peerName,
+    reportLabel: '檢舉',
+  });
 
   const content = `
     <header class="topbar">
@@ -3886,6 +4129,7 @@ async function renderChat(threadId, token = nextView()) {
       <h1>${escapeHtml(thread.peerName)}</h1>
       ${bargainLink}
     </header>
+    ${chatSafety}
     ${strip}
     ${statusCard}
     ${chatTip}
@@ -3907,6 +4151,7 @@ async function renderChat(threadId, token = nextView()) {
     </form>`;
 
   app.innerHTML = shell(content, { noTab: true });
+  bindSafety(app);
   bindOfferStatus(app, { onDone: () => renderChat(threadId) });
 
   const log = app.querySelector('#chat-log');
@@ -4113,7 +4358,18 @@ function offerRow(o, { incoming = false } = {}) {
   const preview = incoming
     ? `${o.fromName ? `${o.fromName} · ` : ''}${view.label}${view.status === 'countered' ? ` · ${view.detail}` : ''}`
     : `${view.sub || view.detail}${o.meetup ? ` · ${o.meetup}` : ''}`;
+  const safety = incoming
+    ? safetyLinks({
+        reportType: 'offer',
+        reportId: o.id,
+        blockId: o.fromId,
+        blockName: o.fromName,
+        reportLabel: '檢舉',
+        blockLabel: '封鎖',
+      })
+    : '';
   return `
+          <div class="offer-thread">
           <div class="thread">
             <button class="thread-open" type="button" data-go="${dest}">
               <div class="thumb-sm" style="background:${tone}">${l ? thumbInner(l) : '📦'}</div>
@@ -4126,6 +4382,8 @@ function offerRow(o, { incoming = false } = {}) {
               </div>
             </button>
             <button class="thread-delete" type="button" data-hide-offer="${escapeAttr(o.id)}" data-hide-title="${escapeAttr(title)}" aria-label="刪除議價">刪除</button>
+          </div>
+          ${safety}
           </div>`;
 }
 
@@ -4166,6 +4424,7 @@ async function renderBargainsTab(token = nextView()) {
       ? `${error ? listRetryBar() : ''}${incomingBlock}${mineBlock}`
       : `<div class="empty">尚未有議價<br/>在商品詳情點「議價」，或等街坊向你出價</div>`;
   app.innerHTML = shell(`${header}${body}`, { tab: 'bargains' });
+  bindSafety(app);
   app.querySelector('#retry-load')?.addEventListener('click', () => renderBargainsTab());
   app.querySelectorAll('[data-hide-offer]').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
@@ -4377,6 +4636,29 @@ async function renderUser(id, token = nextView()) {
     errToast(err, '載入街坊頁失敗');
   }
   if (!isView(token)) return;
+  if (data?.blocked && data.user) {
+    const user = data.user;
+    const content = `
+      ${userHeader(user.name || '街坊')}
+      <div class="profile">
+        ${avatarHtml(user.avatar, 'lg')}
+        <div class="name">${escapeHtml(user.name || '街坊')}</div>
+        <p class="meta">你已封鎖這位街坊。對方的刊登同訊息已從你的列表移除。</p>
+        <button class="btn ghost" type="button" id="unblock-user">解除封鎖</button>
+      </div>`;
+    app.innerHTML = shell(content, { noTab: true });
+    bindUserBack();
+    app.querySelector('#unblock-user')?.addEventListener('click', async () => {
+      try {
+        await unblockUser(user.id);
+        toast('已解除封鎖');
+        renderUser(id);
+      } catch (err) {
+        errToast(err, '未能解除封鎖');
+      }
+    });
+    return;
+  }
   if (!data?.user) {
     app.innerHTML = shell(`${userHeader('街坊')}${error ? listErrorHtml('載入失敗') : '<div class="empty">找不到這位街坊</div>'}`, {
       noTab: true,
@@ -4392,16 +4674,19 @@ async function renderUser(id, token = nextView()) {
   const reviews = Array.isArray(data.reviews) ? data.reviews : [];
   const reviewHtml = reviews.length
     ? reviews
-        .map(
-          (r) => `
+        .map((r) => {
+          const own = isLoggedIn() && r.fromId === getState().me?.id;
+          const report = !own ? safetyLinks({ reportType: 'review', reportId: r.id, reportLabel: '檢舉' }) : '';
+          return `
         <div class="review">
           <div class="review-top">
             <span>${starMarks(r.stars)}</span>
             <span class="meta">${escapeHtml(r.fromName || '街坊')}${r.time ? ` · ${escapeHtml(r.time)}` : ''}</span>
           </div>
           ${r.text ? `<p>${escapeHtml(r.text)}</p>` : ''}
-        </div>`
-        )
+          ${report}
+        </div>`;
+        })
         .join('')
     : '<p class="meta">尚未有街坊評價</p>';
   const mine = isLoggedIn() && getState().me.id === user.id;
@@ -4419,7 +4704,13 @@ async function renderUser(id, token = nextView()) {
     ${
       mine
         ? `<div class="menu"><button class="menu-row" type="button" data-go="profile"><span>編輯個人資料</span><span class="arrow">→</span></button></div>`
-        : ''
+        : safetyLinks({
+            reportType: 'user',
+            reportId: user.id,
+            blockId: user.id,
+            blockName: user.name,
+            reportLabel: '檢舉這位街坊',
+          })
     }
     <div class="list-pad">
       <div class="section-label">街坊評價</div>
@@ -4434,6 +4725,7 @@ async function renderUser(id, token = nextView()) {
     }`;
   app.innerHTML = shell(content, { noTab: true });
   bindUserBack();
+  bindSafety(app);
 }
 
 function showAbout() {
@@ -4450,6 +4742,7 @@ function showAbout() {
         <p class="meta">MoGOT</p>
         <p class="meta" style="margin:8px 0 16px">一物一故事 · 閑置亦有價</p>
         <button type="button" class="btn ghost" id="about-support" style="width:100%;margin-bottom:8px">支援與聯絡</button>
+        <button type="button" class="btn ghost" id="about-terms" style="width:100%;margin-bottom:8px">使用條款</button>
         <button type="button" class="btn ghost" id="about-privacy" style="width:100%;margin-bottom:8px">隱私政策</button>
         <button type="button" class="btn primary" id="about-close" style="width:100%">關閉</button>
       </div>
@@ -4463,6 +4756,10 @@ function showAbout() {
   overlay.querySelector('#about-support')?.addEventListener('click', () => {
     close();
     go('support');
+  });
+  overlay.querySelector('#about-terms')?.addEventListener('click', () => {
+    close();
+    go('terms');
   });
   overlay.querySelector('#about-privacy')?.addEventListener('click', () => {
     close();
@@ -4540,6 +4837,7 @@ async function renderMe(token = nextView()) {
       ${menuGo('sold', '已售', soldCount)}
       ${menuGo('saved', '收藏', saved)}
       ${menuGo('bargains', '我的議價')}
+      ${menuGo('blocked', '已封鎖的街坊')}
       <button class="menu-row" type="button" id="notify-toggle" role="switch" aria-checked="${alertPref.enabled ? 'true' : 'false'}" aria-label="訊息提醒">
         <span>訊息提醒</span>
         <span class="notify-control">
@@ -4560,6 +4858,7 @@ async function renderMe(token = nextView()) {
         </span>
       </button>
       <button class="menu-row" type="button" data-go="support"><span>支援與聯絡</span><span class="arrow">→</span></button>
+      <button class="menu-row" type="button" data-go="terms"><span>使用條款</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" data-go="privacy"><span>隱私政策</span><span class="arrow">→</span></button>
       <button class="menu-row" type="button" id="about"><span>關於澳賣GOT</span><span class="arrow">→</span></button>
       ${
@@ -4745,7 +5044,14 @@ function renderProfile() {
       <div class="actionbar">
         <button class="btn primary" type="submit">更新密碼</button>
       </div>
-    </form>`;
+    </form>
+    <section class="password-form delete-account" aria-labelledby="delete-heading">
+      <div class="password-head">
+        <h2 class="form-section" id="delete-heading">刪除帳號</h2>
+        <p class="photo-hint">刪除後不能再用這個帳號登入。你的個人資料、刊登相片同你發出的訊息會被移除。對方自己的訊息同已發生的議價會留給對方。此動作不能復原。</p>
+      </div>
+      <button class="btn ghost" type="button" id="delete-account-open">刪除帳號</button>
+    </section>`;
 
   app.innerHTML = shell(content, { tab: 'me' });
 
@@ -4860,6 +5166,122 @@ function renderProfile() {
   });
 
   bindPasswordForm(app.querySelector('#password-form'));
+  bindDeleteAccount();
+}
+
+function bindDeleteAccount() {
+  const open = app.querySelector('#delete-account-open');
+  if (!open) return;
+  open.addEventListener('click', () => {
+    closeOfferSheet();
+    const overlay = document.createElement('div');
+    overlay.className = 'offer-overlay';
+    overlay.innerHTML = `
+      <div class="offer-sheet" role="dialog" aria-modal="true" aria-label="刪除帳號">
+        <div class="offer-sheet-head">
+          <h2>刪除帳號</h2>
+          <button type="button" class="offer-close" data-delete-close aria-label="關閉">×</button>
+        </div>
+        <form id="delete-account-form" novalidate>
+          <p class="offer-ask">請輸入密碼，再按「確認刪除」。只按「刪除帳號」不會刪除。刪除後不能再登入。</p>
+          <div class="field safety-detail">
+            <label for="delete-password">密碼</label>
+            <input id="delete-password" name="password" type="password" autocomplete="current-password" required aria-required="true" />
+            <p class="field-error" id="delete-password-error" role="alert" hidden></p>
+          </div>
+          <div class="confirm-actions">
+            <button class="btn ghost" type="button" data-delete-close>取消</button>
+            <button class="btn primary" type="submit" id="delete-account-confirm">確認刪除</button>
+          </div>
+        </form>
+      </div>`;
+    const close = () => {
+      overlay.remove();
+      document.body.classList.remove('offer-open');
+    };
+    document.body.appendChild(overlay);
+    document.body.classList.add('offer-open');
+    const form = overlay.querySelector('#delete-account-form');
+    const input = overlay.querySelector('#delete-password');
+    overlay.querySelectorAll('[data-delete-close]').forEach((btn) => btn.addEventListener('click', close));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+    input?.focus();
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = String(new FormData(form).get('password') || '');
+      if (!password) {
+        paintFieldError(input, '請輸入密碼');
+        input?.focus();
+        return;
+      }
+      const submit = form.querySelector('#delete-account-confirm');
+      if (submit) submit.disabled = true;
+      try {
+        await deleteMyAccount(password);
+        close();
+        go('login');
+        toast('帳號已刪除，不能再登入');
+      } catch (err) {
+        if (submit) submit.disabled = false;
+        paintFieldError(input, err?.message || '未能刪除帳號');
+        errToast(err, '未能刪除帳號');
+      }
+    });
+  });
+}
+
+async function renderBlocked(token = nextView()) {
+  if (!requireAuth('blocked')) return;
+  const header = subHeader('已封鎖的街坊', 'me');
+  app.innerHTML = shell(`${header}${skeletonThreads()}`, { tab: 'me' });
+  let blocks = [];
+  let error = null;
+  try {
+    blocks = await refreshBlocks();
+  } catch (err) {
+    error = err;
+    errToast(err, '載入失敗');
+  }
+  if (!isView(token)) return;
+  const list = (Array.isArray(blocks) ? blocks : [])
+    .map(
+      (row) => `
+      <div class="thread">
+        <div class="thread-open blocked-row">
+          ${avatarHtml(row.avatar, 'sm')}
+          <div class="body">
+            <div class="name">${escapeHtml(row.name || '街坊')}</div>
+            <div class="preview">已從你的刊登同訊息列表移除</div>
+          </div>
+        </div>
+        <button class="thread-delete" type="button" data-unblock="${escapeAttr(row.userId)}">解除封鎖</button>
+      </div>`
+    )
+    .join('');
+  const body = error && !list
+    ? listErrorHtml('載入失敗')
+    : list
+      ? list
+      : '<div class="empty">尚未封鎖任何街坊<br/>在刊登、訊息或街坊頁可以封鎖</div>';
+  app.innerHTML = shell(`${header}${body}`, { tab: 'me' });
+  app.querySelector('#retry-load')?.addEventListener('click', () => renderBlocked());
+  app.querySelectorAll('[data-unblock]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const userId = btn.getAttribute('data-unblock');
+      if (!userId) return;
+      btn.disabled = true;
+      try {
+        await unblockUser(userId);
+        toast('已解除封鎖');
+        renderBlocked();
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '未能解除封鎖');
+      }
+    });
+  });
 }
 
 /* ---------- Router ---------- */
@@ -4942,6 +5364,12 @@ async function route() {
       break;
     case 'privacy':
       renderPrivacy();
+      break;
+    case 'terms':
+      renderTerms();
+      break;
+    case 'blocked':
+      await renderBlocked(token);
       break;
     case 'support':
       renderSupport();

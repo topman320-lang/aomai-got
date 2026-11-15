@@ -154,6 +154,14 @@ export const AuthApi = {
   me: () => api('/api/me', { auth: true }),
   updateMe: (payload) => api('/api/me', { method: 'PATCH', body: payload, auth: true }),
   changePassword: (payload) => api('/api/me/password', { method: 'POST', body: payload, auth: true }),
+  deleteMe: (payload) => api('/api/me/delete', { method: 'POST', body: payload, auth: true }),
+};
+
+export const SafetyApi = {
+  report: (payload) => api('/api/reports', { method: 'POST', body: payload, auth: true }),
+  blocks: () => api('/api/blocks', { auth: true }),
+  block: (userId) => api('/api/blocks', { method: 'POST', body: { userId }, auth: true }),
+  unblock: (userId) => api(`/api/blocks/${encodeURIComponent(userId)}`, { method: 'DELETE', auth: true }),
 };
 
 export const ListingsApi = {
@@ -270,6 +278,10 @@ export const PriceApi = {
 
 export function privacyUrl() {
   return `${API_BASE}/privacy`;
+}
+
+export function termsUrl() {
+  return `${API_BASE}/terms`;
 }
 
 export function supportUrl() {

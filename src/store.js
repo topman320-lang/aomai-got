@@ -1,6 +1,7 @@
 import {
   AuthApi,
   BadgesApi,
+  SafetyApi,
   ListingsApi,
   NoticesApi,
   OffersApi,
@@ -86,6 +87,8 @@ let state = {
   threads: [],
   wants: [],
   notices: [],
+  blocks: [],
+  blockedIds: [],
   badges: { messages: 0, offers: 0, notices: 0 },
   ready: false,
   online: false,
@@ -112,6 +115,8 @@ function clearPrivateState() {
   state.offers = [];
   state.incomingOffers = [];
   state.notices = [];
+  state.blocks = [];
+  state.blockedIds = [];
   state.badges = { messages: 0, offers: 0, notices: 0 };
 }
 
@@ -235,6 +240,8 @@ export async function bootstrap() {
     state.threads = [];
     state.wants = [];
     state.notices = [];
+    state.blocks = [];
+    state.blockedIds = [];
     state.badges = { messages: 0, offers: 0, notices: 0 };
     return { online: false };
   }
@@ -262,9 +269,14 @@ export async function bootstrap() {
     state.offers = [];
     state.incomingOffers = [];
     state.notices = [];
+    state.blocks = [];
+    state.blockedIds = [];
     state.badges = { messages: 0, offers: 0, notices: 0 };
   }
-  if (isLoggedIn()) await refreshBadges();
+  if (isLoggedIn()) {
+    await refreshBlocks();
+    await refreshBadges();
+  }
   else syncBadges();
   state.ready = true;
   return { online: true, me: state.me };
@@ -276,7 +288,10 @@ export async function refreshListings(params = {}) {
   const priceFiltered = params.min != null || params.max != null;
   const scoped = Boolean(params.q || (params.category && params.category !== '全部') || priceFiltered || params.mine);
   if (!scoped) {
-    const kept = state.listings.filter((l) => l.sold && !rows.some((n) => n.id === l.id));
+    const hidden = new Set(state.blockedIds || []);
+    const kept = state.listings.filter(
+      (l) => l.sold && !hidden.has(l.sellerId) && !rows.some((n) => n.id === l.id)
+    );
     state.listings = [...rows, ...kept];
   } else {
     for (const l of rows) upsertListing(l);
@@ -309,7 +324,13 @@ export async function fetchHomeListings({ q = '', category = '全部', min = nul
 }
 
 export async function refreshListing(id) {
-  const { listing } = await ListingsApi.get(id);
+  let listing;
+  try {
+    ({ listing } = await ListingsApi.get(id));
+  } catch (err) {
+    if (err?.code === 'BLOCKED') state.listings = state.listings.filter((row) => row.id !== id);
+    throw err;
+  }
   upsertListing(listing);
   if (!isLoggedIn()) {
     state.offers = state.offers.filter((o) => o.listingId !== id);
@@ -408,7 +429,7 @@ export async function login(email, password) {
   rotateSession();
   setToken(token);
   state.me = asMe(user);
-  await Promise.all([refreshListings(), refreshThreads(), refreshWants()]);
+  await Promise.all([refreshListings(), refreshThreads(), refreshWants(), refreshBlocks()]);
   await refreshMyOffers();
   await refreshIncomingOffers();
   await refreshBadges();
@@ -680,4 +701,78 @@ export async function stats() {
   } catch {
     return localStats();
   }
+}
+
+export async function refreshBlocks() {
+  if (!isLoggedIn()) {
+    state.blocks = [];
+    state.blockedIds = [];
+    return [];
+  }
+  const session = sessionGeneration();
+  const data = await SafetyApi.blocks();
+  if (session !== sessionGeneration() || !isLoggedIn()) return state.blocks;
+  const blocks = Array.isArray(data?.blocks) ? data.blocks : [];
+  state.blocks = blocks;
+  state.blockedIds = blocks.map((row) => row.userId).filter(Boolean);
+  return blocks;
+}
+
+/** Drop one person's listings, messages, and offers from this session immediately. */
+export function forgetBlockedUser(userId) {
+  const id = String(userId || '');
+  if (!id) return;
+  const removedListings = new Set(state.listings.filter((l) => l.sellerId === id).map((l) => l.id));
+  const removedThreads = new Set(
+    state.threads
+      .filter((t) => t.peerId === id || t.buyerId === id || t.sellerId === id)
+      .map((t) => t.id)
+  );
+  state.listings = state.listings.filter((l) => l.sellerId !== id);
+  state.threads = state.threads.filter((t) => !removedThreads.has(t.id));
+  state.offers = state.offers.filter((o) => o.fromId !== id && !removedListings.has(o.listingId));
+  state.incomingOffers = (state.incomingOffers || []).filter(
+    (o) => o.fromId !== id && !removedListings.has(o.listingId)
+  );
+  state.wants = (state.wants || []).filter((listingId) => !removedListings.has(listingId));
+  state.notices = (state.notices || []).filter((notice) => {
+    const href = String(notice?.href || '');
+    if (href.startsWith('chat/')) return !removedThreads.has(href.slice('chat/'.length));
+    if (href.startsWith('detail/')) return !removedListings.has(href.slice('detail/'.length));
+    return true;
+  });
+  syncBadges();
+}
+
+export async function blockUser(userId) {
+  const data = await SafetyApi.block(userId);
+  forgetBlockedUser(userId);
+  if (!state.blockedIds.includes(userId)) state.blockedIds.push(userId);
+  return data;
+}
+
+export async function unblockUser(userId) {
+  const data = await SafetyApi.unblock(userId);
+  state.blockedIds = state.blockedIds.filter((id) => id !== userId);
+  state.blocks = (state.blocks || []).filter((row) => row.userId !== userId);
+  await Promise.all([
+    refreshListings().catch(() => {}),
+    refreshThreads().catch(() => {}),
+    refreshMyOffers().catch(() => {}),
+    refreshIncomingOffers().catch(() => {}),
+    refreshWants().catch(() => {}),
+    refreshNotices().catch(() => {}),
+    refreshBadges().catch(() => {}),
+  ]);
+  return data;
+}
+
+export async function reportContent(payload) {
+  return SafetyApi.report(payload);
+}
+
+/** Deletes the signed-in account, then ends this session. */
+export async function deleteMyAccount(password) {
+  await AuthApi.deleteMe({ password, confirm: true });
+  await logout();
 }

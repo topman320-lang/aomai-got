@@ -17,12 +17,12 @@ test('register form blocks submit until privacy and age 16 are accepted', () => 
   const form = renderRegisterSource();
   assert.match(form, /id="register-consent"/);
   assert.match(form, /aria-required="true"/);
-  assert.match(form, /我已閱讀並同意<a class="consent-link" href="#\/privacy" data-go="privacy">隱私政策<\/a>，並確認本人已年滿 16 歲。/);
+  assert.match(form, /我已閱讀並同意<a class="consent-link" href="#\/terms\?from=register" data-go="terms\?from=register">使用條款<\/a>及<a class="consent-link" href="#\/privacy\?from=register" data-go="privacy\?from=register">隱私政策<\/a>，並確認本人已年滿 16 歲。/);
   assert.match(form, /id="register-submit" disabled/);
-  assert.match(form, /請先同意隱私政策，並確認已年滿 16 歲/);
+  assert.match(form, /請先同意使用條款及隱私政策，並確認已年滿 16 歲/);
   assert.match(form, /if \(!agreed\)/);
   assert.match(form, /register\(name, email, password, true\)/);
-  assert.doesNotMatch(form, /使用條款/);
+  assert.match(form, /建立帳號前，請先閱讀<a class="legal-link" href="#\/terms\?from=register"/);
   assert.match(store, /consent: consent === true/);
 });
 

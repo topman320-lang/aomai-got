@@ -24,6 +24,8 @@ const ZEROS = {
   wants: 0,
   devices: 0,
   notices: 0,
+  reports: 0,
+  blocks: 0,
 };
 
 test('seed account matcher ignores lookalike emails', () => {
@@ -114,6 +116,8 @@ test('purge removes robot accounts, keeps humans, and a second run is a no-op', 
     wants: 2,
     devices: 2,
     notices: 3,
+    reports: 0,
+    blocks: 0,
   });
 
   const saved = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'aomai.json'), 'utf8'));

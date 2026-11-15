@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
-import { privacyPage, supportPage, verifyResultPage, SUPPORT_EMAIL } from './public-pages.js';
+import { privacyPage, supportPage, termsPage, verifyResultPage, SUPPORT_EMAIL, TERMS_POLICY_ID } from './public-pages.js';
 
 const indexSource = fs.readFileSync(new URL('./index.js', import.meta.url), 'utf8');
 
@@ -39,9 +39,27 @@ test('failed verification page uses the approved resend instructions', () => {
   assert.equal(html.includes('App 入面'), false);
 });
 
-test('server exposes /privacy and /support', () => {
+test('terms page is reachable before an account exists', () => {
+  const html = termsPage();
+  assert.equal(TERMS_POLICY_ID, 'terms-2026-11');
+  assert.match(html, /<h1>澳賣GOT 使用條款<\/h1>/);
+  assert.match(html, /MoGOT/);
+  assert.match(html, /一物一故事 · 閑置亦有價/);
+  assert.match(html, /年滿 16 歲/);
+  assert.match(html, /唔會鑑定貨品，亦唔代收款/);
+  assert.match(html, /刪除帳號/);
+  assert.match(html, /檢舉/);
+  assert.match(html, /封鎖/);
+  assert.match(html, /mailto:mogot\.app@gmail\.com/);
+  assert.doesNotMatch(html, /澳賣 GOT/);
+  assert.doesNotMatch(html, /示範/);
+});
+
+test('server exposes /privacy, /terms, and /support', () => {
   assert.match(indexSource, /app\.get\('\/privacy'/);
   assert.match(indexSource, /privacyPage\(\)/);
+  assert.match(indexSource, /app\.get\('\/terms'/);
+  assert.match(indexSource, /termsPage\(\)/);
   assert.match(indexSource, /app\.get\('\/support'/);
   assert.match(indexSource, /supportPage\(\)/);
   assert.match(indexSource, /\/support/);
