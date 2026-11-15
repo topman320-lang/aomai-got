@@ -68,6 +68,7 @@ import {
   logout,
   markNoticesRead,
   markThreadRead,
+  moderationReports,
   priceHint,
   refreshBadges,
   refreshBlocks,
@@ -91,6 +92,7 @@ import {
   resetPassword,
   saveHandoff,
   sendMessage,
+  setReportStatus,
   setSold,
   unblockUser,
   stats,
@@ -4838,6 +4840,7 @@ async function renderMe(token = nextView()) {
       ${menuGo('saved', '收藏', saved)}
       ${menuGo('bargains', '我的議價')}
       ${menuGo('blocked', '已封鎖的街坊')}
+      ${state.me.staff ? menuGo('moderation', '檢舉審核') : ''}
       <button class="menu-row" type="button" id="notify-toggle" role="switch" aria-checked="${alertPref.enabled ? 'true' : 'false'}" aria-label="訊息提醒">
         <span>訊息提醒</span>
         <span class="notify-control">
@@ -5284,6 +5287,141 @@ async function renderBlocked(token = nextView()) {
   });
 }
 
+const MOD_FILTERS = [
+  ['inbox', '待處理'],
+  ['follow', '只要跟進'],
+  ['done', '已處理'],
+  ['dismissed', '不處理'],
+  ['malicious', '惡意'],
+  ['all', '全部'],
+];
+
+const MOD_ACTIONS = [
+  ['follow', '要跟進'],
+  ['done', '已處理'],
+  ['dismissed', '不處理'],
+  ['malicious', '惡意檢舉'],
+];
+
+let moderationFilter = 'inbox';
+
+function macauTime(ts) {
+  const n = Number(ts);
+  if (!n) return '';
+  try {
+    return new Date(n).toLocaleString('zh-Hant-HK', {
+      timeZone: 'Asia/Macau',
+      hour12: false,
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function snapshotLines(snapshot) {
+  const labels = {
+    title: '標題',
+    description: '說明',
+    text: '內容',
+    message: '留言',
+    listingTitle: '刊登',
+    name: '名稱',
+    bio: '簡介',
+    price: '價錢',
+    amount: '出價',
+    stars: '星數',
+  };
+  return Object.entries(labels)
+    .filter(([key]) => snapshot && snapshot[key] != null && String(snapshot[key]) !== '')
+    .map(([key, label]) => `<div class="meta">${escapeHtml(label)}：${escapeHtml(snapshot[key])}</div>`)
+    .join('');
+}
+
+async function renderModeration(token = nextView()) {
+  if (!requireAuth('moderation')) return;
+  const header = subHeader('檢舉審核', 'me');
+  app.innerHTML = shell(`${header}<div class="empty">載入中…</div>`, { tab: 'me' });
+  let data = null;
+  let error = null;
+  try {
+    data = await moderationReports(moderationFilter);
+  } catch (err) {
+    error = err;
+  }
+  if (!isView(token)) return;
+  if (error?.code === 'FORBIDDEN' || !getState().me.staff) {
+    app.innerHTML = shell(`${header}<div class="empty">沒有審核權限</div>`, { tab: 'me' });
+    return;
+  }
+  if (error) {
+    app.innerHTML = shell(`${header}${listErrorHtml('載入檢舉失敗')}`, { tab: 'me' });
+    app.querySelector('#retry-load')?.addEventListener('click', () => renderModeration());
+    return;
+  }
+  const days = data?.repeatWindowDays || 7;
+  const reports = Array.isArray(data?.reports) ? data.reports : [];
+  const busy = reports.some((row) => row.busy);
+  const filters = `<div class="chip-row mod-filters">${MOD_FILTERS.map(
+    ([id, label]) =>
+      `<button type="button" class="chip ${moderationFilter === id ? 'active' : ''}" data-mod-filter="${escapeAttr(id)}">${escapeHtml(label)}</button>`
+  ).join('')}</div>`;
+  const cards = reports.length
+    ? reports
+        .map((row) => {
+          const who = row.targetName ? `${row.reporterName} → ${row.targetName}` : row.reporterName;
+          const count = row.busy
+            ? `<p class="mod-flag">近 ${days} 日檢舉 ${row.recentCount} 次</p>`
+            : `<p class="meta">近 ${days} 日 ${row.recentCount} 次${row.totalCount > row.recentCount ? ` · 共 ${row.totalCount} 次` : ''}</p>`;
+          const actions = MOD_ACTIONS.map(([status, label]) => {
+            const on = row.status === status;
+            return `<button type="button" class="btn ${on ? 'primary' : 'ghost'}" data-mod-status="${escapeAttr(status)}" data-mod-id="${escapeAttr(row.id)}" ${on ? 'disabled' : ''}>${escapeHtml(label)}</button>`;
+          }).join('');
+          return `<article class="mod-card">
+            <div class="mod-top">
+              <span class="pill">${escapeHtml(row.targetTypeLabel || '內容')} · ${escapeHtml(row.reasonLabel || '')}</span>
+              <span class="meta">${escapeHtml(macauTime(row.createdAt))}</span>
+            </div>
+            <p class="mod-who">${escapeHtml(who)}</p>
+            <p class="meta">狀態：${escapeHtml(row.statusLabel || '')}</p>
+            ${count}
+            ${row.detail ? `<p>${escapeHtml(row.detail)}</p>` : ''}
+            ${snapshotLines(row.snapshot)}
+            <div class="mod-actions">${actions}</div>
+          </article>`;
+        })
+        .join('')
+    : '<div class="empty">這個篩選沒有檢舉</div>';
+  const note = `<p class="photo-hint mod-note">待處理同要跟進會留喺預設清單。標記為惡意或不處理之後，預設清單唔再顯示，可以用上面嘅篩選搵返。檢舉唔會自動隱藏刊登，亦唔會自動封鎖任何人。新檢舉仍會嘗試通知管理員信箱。</p>`;
+  const alert = busy ? '<p class="mod-flag mod-note">有人短時間內多次檢舉。請先睇次數，再決定係跟進定當惡意。</p>' : '';
+  app.innerHTML = shell(`${header}${filters}${note}${alert}${cards}`, { tab: 'me' });
+  app.querySelectorAll('[data-mod-filter]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      moderationFilter = btn.getAttribute('data-mod-filter') || 'inbox';
+      renderModeration();
+    });
+  });
+  app.querySelectorAll('[data-mod-status]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-mod-id');
+      const status = btn.getAttribute('data-mod-status');
+      if (!id || !status) return;
+      btn.disabled = true;
+      try {
+        await setReportStatus(id, status);
+        toast('已更新檢舉狀態');
+        renderModeration();
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '未能更新');
+      }
+    });
+  });
+}
+
 /* ---------- Router ---------- */
 
 async function route() {
@@ -5370,6 +5508,9 @@ async function route() {
       break;
     case 'blocked':
       await renderBlocked(token);
+      break;
+    case 'moderation':
+      await renderModeration(token);
       break;
     case 'support':
       renderSupport();

@@ -3566,6 +3566,49 @@ button.seller-card:active {
   cursor: default;
 }
 
+.mod-filters {
+  padding: 8px 16px 0;
+}
+
+.mod-note {
+  padding: 8px 16px 0;
+}
+
+.mod-card {
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mod-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mod-who {
+  margin: 8px 0 0;
+  font-weight: 600;
+}
+
+.mod-flag {
+  margin: 8px 0 0;
+  font-weight: 700;
+}
+
+.mod-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mod-actions .btn {
+  flex: 1 1 calc(50% - 8px);
+  min-height: 44px;
+  height: 44px;
+}
+
 /* iOS WKWebView zooms on focus when a text control's computed font-size
    is under 16px, and that visualViewport scale stays after blur.
    Floor every text control. File inputs keep the 100px hit target

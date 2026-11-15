@@ -65,6 +65,7 @@ import {
   safetyNoticeMail,
   shouldSuppressNotice,
 } from './safety.js';
+import { isStaffUser, listModerationReports, setReportStatus } from './moderation.js';
 import {
   RESEND_EMAIL_LIMIT,
   RESEND_IP_LIMIT,
@@ -265,7 +266,16 @@ function presentUser(user, req, viewerId = user?.id) {
   const base = publicUser(user, publicBaseFor(req));
   if (!base) return base;
   const db = loadDb();
-  return { ...base, trust: trustSummary(user.id, db, { excludeFromIds: blockedIdsFor(db, viewerId) }) };
+  const body = { ...base, trust: trustSummary(user.id, db, { excludeFromIds: blockedIdsFor(db, viewerId) }) };
+  if (user?.id && viewerId === user.id) body.staff = isStaffUser(user);
+  return body;
+}
+
+function requireStaff(req, res, next) {
+  if (!isStaffUser(req.user)) {
+    return res.status(403).json({ error: 'FORBIDDEN', message: '沒有審核權限' });
+  }
+  next();
 }
 
 async function deliverSafetyMail(payload) {
@@ -910,6 +920,22 @@ app.post('/api/reports', auth, async (req, res) => {
   applyMailResult(created.report, mailed);
   persist();
   res.status(201).json({ ok: true, message: '已送出檢舉，我們會跟進' });
+});
+
+app.get('/api/moderation/reports', auth, requireStaff, (req, res) => {
+  res.json(listModerationReports(loadDb(), { status: req.query.status }));
+});
+
+app.patch('/api/moderation/reports/:id', auth, requireStaff, (req, res) => {
+  const db = loadDb();
+  const result = setReportStatus(db, {
+    reportId: req.params.id,
+    status: req.body?.status,
+    staffId: req.user.id,
+  });
+  if (!result.ok) return res.status(result.status).json({ error: result.error, message: result.message });
+  persist();
+  res.json({ ok: true, report: result.report });
 });
 
 function priceBound(value) {

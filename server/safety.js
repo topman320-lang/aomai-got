@@ -144,6 +144,7 @@ export function createReport(db, { id, reporter, targetType, targetId, reason, d
     detail: note,
     snapshot: found.snapshot,
     createdAt: now,
+    status: 'open',
     mailError: false,
   };
   db.reports.unshift(row);

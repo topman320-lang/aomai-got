@@ -41,5 +41,9 @@ test('listings, messages, reviews, and profiles can be reported or blocked', () 
   assert.match(main, /reportType: 'offer'/);
   assert.match(main, /case 'terms':/);
   assert.match(main, /case 'blocked':/);
+  assert.match(main, /case 'moderation':/);
+  assert.match(main, /state\.me\.staff \? menuGo\('moderation', '檢舉審核'\)/);
   assert.match(main, /已封鎖的街坊/);
+  const moderation = main.slice(main.indexOf('async function renderModeration'), main.indexOf('async function route'));
+  assert.doesNotMatch(moderation, /@/);
 });

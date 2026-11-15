@@ -157,6 +157,15 @@ export const AuthApi = {
   deleteMe: (payload) => api('/api/me/delete', { method: 'POST', body: payload, auth: true }),
 };
 
+export const ModerationApi = {
+  reports: (status = 'inbox') => {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+    return api(`/api/moderation/reports${qs}`, { auth: true });
+  },
+  setStatus: (id, status) =>
+    api(`/api/moderation/reports/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status }, auth: true }),
+};
+
 export const SafetyApi = {
   report: (payload) => api('/api/reports', { method: 'POST', body: payload, auth: true }),
   blocks: () => api('/api/blocks', { auth: true }),

@@ -51,6 +51,7 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 | `APNS_KEY` | unset. APNs `.p8` PEM. A single line may use `\n` for line breaks. Do not commit the value. |
 | `APNS_BUNDLE_ID` | `com.aomai.got`. Must match the iOS bundle id (`apns-topic`). |
 | `APNS_ENV` | `production`. `sandbox` or `development` tries the sandbox host first. A `BadDeviceToken` retries the other host once. |
+| `MOD_STAFF` | unset. Comma-separated staff user ids and/or exact display names. Until this is set, nobody can open 檢舉審核. Do not commit the value. |
 
 ## Extra routes
 
@@ -60,7 +61,9 @@ On boot, leftover robot accounts (`demo@aomai.got` and `*@seed.aomai.got`) are r
 | GET | `/terms` | no | Public terms. Same mailbox. Linked before login and registration |
 | GET | `/support` | no | Public support page. Same mailbox |
 | POST | `/api/me/delete` | yes | `{ password, confirm: true }`. Deletes the account. Wrong password or `confirm` not exactly `true` changes nothing |
-| POST | `/api/reports` | yes | `{ targetType, targetId, reason, detail? }`. `targetType` is `listing`, `message`, `review`, `offer`, or `user`. Stores the report without email addresses and emails `mogot.app@gmail.com` |
+| POST | `/api/reports` | yes | `{ targetType, targetId, reason, detail? }`. `targetType` is `listing`, `message`, `review`, `offer`, or `user`. Stores the report without email addresses and emails `mogot.app@gmail.com`. Does not hide the listing or block anyone |
+| GET | `/api/moderation/reports` | staff | `?status=inbox` (default), `follow`, `done`, `dismissed`, `malicious`, or `all`. Inbox is open plus follow-up. 403 unless `MOD_STAFF` matches the caller |
+| PATCH | `/api/moderation/reports/:id` | staff | `{ status }`. Status only. Does not hide listings or create blocks |
 | GET | `/api/blocks` | yes | People the caller has blocked |
 | POST | `/api/blocks` | yes | `{ userId }`. Hides that person's listings, messages, and offers from the caller and emails `mogot.app@gmail.com` |
 | DELETE | `/api/blocks/:userId` | yes | Removes the caller's block |

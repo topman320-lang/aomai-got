@@ -1,6 +1,7 @@
 import {
   AuthApi,
   BadgesApi,
+  ModerationApi,
   SafetyApi,
   ListingsApi,
   NoticesApi,
@@ -76,6 +77,7 @@ function asMe(user) {
     email: user.email || '',
     verified: Boolean(user.verified),
     trust: user.trust || null,
+    staff: Boolean(user.staff),
   };
 }
 
@@ -769,6 +771,14 @@ export async function unblockUser(userId) {
 
 export async function reportContent(payload) {
   return SafetyApi.report(payload);
+}
+
+export async function moderationReports(status) {
+  return ModerationApi.reports(status);
+}
+
+export async function setReportStatus(id, status) {
+  return ModerationApi.setStatus(id, status);
 }
 
 /** Deletes the signed-in account, then ends this session. */
