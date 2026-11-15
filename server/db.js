@@ -19,6 +19,8 @@ const EMPTY = () => ({
   handoffs: [],
   notices: [],
   devices: [],
+  reports: [],
+  blocks: [],
 });
 
 function ensureDirs() {

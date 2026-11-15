@@ -1,6 +1,8 @@
 /** Peer trust derived from deals, messages, and short reviews.
  * Never describes platform authentication, appraisal, or escrow. */
 
+import { blockedIdsFor } from './safety.js';
+
 const GUIDE = {
   服飾: 80,
   美妝: 60,
@@ -176,13 +178,14 @@ export function lastActiveHint(ts) {
   return '較少近期活動';
 }
 
-export function trustSummary(userId, db, { recentLimit = 1 } = {}) {
+export function trustSummary(userId, db, { recentLimit = 1, excludeFromIds = null } = {}) {
+  const hidden = excludeFromIds instanceof Set ? excludeFromIds : new Set();
   const sold = (db.listings || []).filter((l) => l.sellerId === userId && l.sold).length;
   const bought = (db.listings || []).filter(
     (l) => l.sold && l.buyerId === userId && l.sellerId !== userId
   ).length;
   const received = (db.reviews || [])
-    .filter((r) => r.toId === userId && isActiveReview(r, db))
+    .filter((r) => r.toId === userId && isActiveReview(r, db) && !hidden.has(r.fromId))
     .sort((a, b) => b.createdAt - a.createdAt);
   const ratingCount = received.length;
   const ratingAvg = ratingCount
@@ -293,8 +296,11 @@ export function offerHiddenFor(offer, userId, listing) {
 }
 
 export function badgeCountsFor(db, userId) {
+  const hidden = blockedIdsFor(db, userId);
   const messages = (db.threads || []).filter((t) => {
     if (threadHiddenFor(t, userId)) return false;
+    const peerId = t.buyerId === userId ? t.sellerId : t.sellerId === userId ? t.buyerId : '';
+    if (hidden.has(peerId)) return false;
     if (t.buyerId === userId) return Boolean(t.buyerUnread);
     if (t.sellerId === userId) return Boolean(t.sellerUnread);
     return false;
@@ -304,6 +310,7 @@ export function badgeCountsFor(db, userId) {
     const listing = (db.listings || []).find((l) => l.id === offer.listingId);
     if (!listing || listing.sold || listing.removedAt) continue;
     if (offerHiddenFor(offer, userId, listing)) continue;
+    if (hidden.has(offer.fromId) || (listing.sellerId !== userId && hidden.has(listing.sellerId))) continue;
     const status = offer.status || 'pending';
     if (offer.fromId === userId && status === 'countered') offers += 1;
     else if (listing.sellerId === userId && offer.fromId !== userId && status === 'pending') offers += 1;

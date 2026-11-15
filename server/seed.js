@@ -5,6 +5,7 @@ import {
   presentAvatar,
 } from './db.js';
 import { presentPhotoFrames } from '../src/photo-frame.js';
+import { blockedIdsFor } from './safety.js';
 import { reviewAccess, reviewsForListing, trustSummary } from './trust.js';
 
 const DEMO_EMAIL = 'demo@aomai.got';
@@ -105,6 +106,16 @@ export function purgeSeedUsers(db) {
   const devices = rows(db, 'devices');
   const seedDevices = devices.filter((device) => device && seedIds.has(device.userId));
 
+  const reports = rows(db, 'reports');
+  const seedReports = reports.filter(
+    (report) => report && (seedIds.has(report.reporterId) || seedIds.has(report.targetUserId))
+  );
+
+  const blocks = rows(db, 'blocks');
+  const seedBlocks = blocks.filter(
+    (row) => row && (seedIds.has(row.blockerId) || seedIds.has(row.blockedId))
+  );
+
   const notices = rows(db, 'notices');
   const droppedRefs = new Set([
     ...seedListingIds,
@@ -129,12 +140,14 @@ export function purgeSeedUsers(db) {
     wants: seedWants.length,
     devices: seedDevices.length,
     notices: seedNotices.length,
+    reports: seedReports.length,
+    blocks: seedBlocks.length,
   };
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
   if (total === 0) {
     if (live) {
       console.log(
-        '[purge] users=0 listings=0 offers=0 threads=0 messages=0 reviews=0 handoffs=0 wants=0 devices=0 notices=0'
+        '[purge] users=0 listings=0 offers=0 threads=0 messages=0 reviews=0 handoffs=0 wants=0 devices=0 notices=0 reports=0 blocks=0'
       );
     }
     return counts;
@@ -150,6 +163,8 @@ export function purgeSeedUsers(db) {
   const droppedWants = new Set(seedWants);
   const droppedDevices = new Set(seedDevices);
   const droppedNotices = new Set(seedNotices);
+  const droppedReports = new Set(seedReports);
+  const droppedBlocks = new Set(seedBlocks);
 
   db.users = users.filter((user) => !droppedUsers.has(user));
   db.listings = listings.filter((listing) => !droppedListings.has(listing));
@@ -161,6 +176,8 @@ export function purgeSeedUsers(db) {
   db.wants = wants.filter((want) => !droppedWants.has(want));
   db.devices = devices.filter((device) => !droppedDevices.has(device));
   db.notices = notices.filter((notice) => !droppedNotices.has(notice));
+  db.reports = reports.filter((report) => !droppedReports.has(report));
+  db.blocks = blocks.filter((row) => !droppedBlocks.has(row));
 
   for (const listing of db.listings) {
     if (listing && seedIds.has(listing.buyerId)) delete listing.buyerId;
@@ -168,7 +185,7 @@ export function purgeSeedUsers(db) {
 
   if (live) persist();
   console.log(
-    `[purge] users=${counts.users} listings=${counts.listings} offers=${counts.offers} threads=${counts.threads} messages=${counts.messages} reviews=${counts.reviews} handoffs=${counts.handoffs} wants=${counts.wants} devices=${counts.devices} notices=${counts.notices}`
+    `[purge] users=${counts.users} listings=${counts.listings} offers=${counts.offers} threads=${counts.threads} messages=${counts.messages} reviews=${counts.reviews} handoffs=${counts.handoffs} wants=${counts.wants} devices=${counts.devices} notices=${counts.notices} reports=${counts.reports} blocks=${counts.blocks}`
   );
   return counts;
 }
@@ -180,6 +197,7 @@ export function seedIfEmpty() {
 
 export function listingDto(l, db, publicBase, viewerId = '') {
   const seller = db.users.find((u) => u.id === l.sellerId);
+  const hidden = blockedIdsFor(db, viewerId);
   const access = reviewAccess(l, db, viewerId);
   return {
     id: l.id,
@@ -196,9 +214,9 @@ export function listingDto(l, db, publicBase, viewerId = '') {
     sellerAvatar: presentAvatar(seller?.avatar || '賣', publicBase),
     sellerBio: seller?.bio || '',
     sellerVerified: Boolean(seller?.verified),
-    sellerTrust: trustSummary(l.sellerId, db),
+    sellerTrust: trustSummary(l.sellerId, db, { excludeFromIds: hidden }),
     buyerId: l.sold ? l.buyerId || '' : '',
-    reviews: reviewsForListing(l, db),
+    reviews: reviewsForListing(l, db).filter((review) => !hidden.has(review.fromId)),
     canReview: access.canReview,
     reviewRole: access.reviewRole,
     myReview: access.myReview,
