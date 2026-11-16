@@ -8,9 +8,11 @@ test('public browse hides sold listings from search and categories', () => {
     { id: 'sold', title: '風扇已售', description: '已面交', category: '家電', location: '氹仔', price: 40, sold: true, createdAt: 3 },
     { id: 'other', title: '書', description: '小說', category: '書本', location: '澳門', price: 10, sold: false, createdAt: 1 },
     { id: 'gone', title: '已移除風扇', description: '不應出現', category: '家電', location: '氹仔', price: 30, sold: false, removedAt: 9, createdAt: 4 },
+    { id: 'staff-hidden', title: '已下架風扇', description: '審核隱藏', category: '家電', location: '氹仔', price: 25, sold: false, staffHiddenAt: 8, createdAt: 5 },
   ];
   const home = filterBrowseListings(rows, {});
   assert.deepEqual(home.map((l) => l.id), ['open', 'other']);
+  assert.equal(home.some((l) => l.id === 'staff-hidden'), false);
   assert.deepEqual(filterBrowseListings(rows, { q: '風扇' }).map((l) => l.id), ['open']);
   assert.deepEqual(filterBrowseListings(rows, { category: '家電' }).map((l) => l.id), ['open']);
   const mine = filterBrowseListings(rows, { sellerId: 'me', includeSold: true });
@@ -20,6 +22,7 @@ test('public browse hides sold listings from search and categories', () => {
     { sellerId: 'me', includeSold: true }
   );
   assert.deepEqual(owned.map((l) => l.id), ['sold', 'open', 'other']);
+  assert.equal(owned.some((l) => l.staffHiddenAt), false);
 });
 
 test('pageWindow keeps the full list when limit is omitted', () => {

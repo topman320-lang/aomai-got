@@ -2,6 +2,7 @@
  * Never describes platform authentication, appraisal, or escrow. */
 
 import { blockedIdsFor } from './safety.js';
+import { platformBannedIds } from './moderation.js';
 
 const GUIDE = {
   服飾: 80,
@@ -297,6 +298,7 @@ export function offerHiddenFor(offer, userId, listing) {
 
 export function badgeCountsFor(db, userId) {
   const hidden = blockedIdsFor(db, userId);
+  for (const id of platformBannedIds(db)) hidden.add(id);
   const messages = (db.threads || []).filter((t) => {
     if (threadHiddenFor(t, userId)) return false;
     const peerId = t.buyerId === userId ? t.sellerId : t.sellerId === userId ? t.buyerId : '';
@@ -308,7 +310,7 @@ export function badgeCountsFor(db, userId) {
   let offers = 0;
   for (const offer of db.offers || []) {
     const listing = (db.listings || []).find((l) => l.id === offer.listingId);
-    if (!listing || listing.sold || listing.removedAt) continue;
+    if (!listing || listing.sold || listing.removedAt || listing.staffHiddenAt) continue;
     if (offerHiddenFor(offer, userId, listing)) continue;
     if (hidden.has(offer.fromId) || (listing.sellerId !== userId && hidden.has(listing.sellerId))) continue;
     const status = offer.status || 'pending';
@@ -321,7 +323,10 @@ export function badgeCountsFor(db, userId) {
 export function priceHint(db, category, condition) {
   const cat = GUIDE[category] ? category : '其他';
   const cond = FACTOR[condition] ? condition : '良好';
-  const peers = (db.listings || []).filter((l) => !l.removedAt && l.category === cat && Number(l.price) > 0);
+  const banned = platformBannedIds(db);
+  const peers = (db.listings || []).filter(
+    (l) => !l.removedAt && !l.staffHiddenAt && !banned.has(l.sellerId) && l.category === cat && Number(l.price) > 0
+  );
   const same = peers.filter((l) => l.condition === cond);
   const pool = same.length >= 2 ? same : peers;
   if (pool.length >= 1) {

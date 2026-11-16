@@ -1,6 +1,8 @@
-/** Staff review of stored reports. Nothing here hides a listing or blocks a user. */
+/** Staff review of stored reports and user-to-user blocks.
+ * Marking a report status does not hide a listing or ban anyone.
+ * Hiding a listing and platform ban are separate confirmed actions. */
 
-import { REPORT_REASONS, reasonById } from './safety.js';
+import { REPORT_REASONS, blockedIdsFor, reasonById } from './safety.js';
 
 /** Comma-separated user ids and/or exact display names. Empty means nobody is staff. */
 export function staffTokens(env = process.env) {
@@ -48,6 +50,89 @@ export function reportStatus(row) {
   return REPORT_STATUSES.includes(status) ? status : 'open';
 }
 
+export function isPlatformBanned(user) {
+  return Boolean(user && user.bannedAt);
+}
+
+export function platformBannedIds(db) {
+  const ids = new Set();
+  for (const user of db?.users || []) {
+    if (isPlatformBanned(user)) ids.add(user.id);
+  }
+  return ids;
+}
+
+/** User-to-user blocks plus platform-banned authors, so their names stay off public pages. */
+export function viewerHiddenIds(db, viewerId) {
+  const hidden = blockedIdsFor(db, viewerId);
+  for (const id of platformBannedIds(db)) hidden.add(id);
+  return hidden;
+}
+
+export function listingTakenDown(listing, db) {
+  if (!listing) return false;
+  if (listing.staffHiddenAt) return true;
+  return platformBannedIds(db).has(listing.sellerId);
+}
+
+function findUser(db, userId) {
+  const id = String(userId || '');
+  if (!id) return null;
+  return (db?.users || []).find((row) => row && row.id === id) || null;
+}
+
+export function resolveReportTargets(db, row) {
+  let listingId = '';
+  let accountId = String(row?.targetUserId || '');
+  const type = row?.targetType;
+  if (type === 'listing') listingId = String(row?.targetId || '');
+  else if (type === 'user') accountId = String(row?.targetId || accountId);
+  else if (type === 'review' || type === 'offer') listingId = String(row?.snapshot?.listingId || '');
+  else if (type === 'message') {
+    const message = (db?.messages || []).find((item) => item && item.id === row?.targetId);
+    const threadId = message?.threadId || row?.snapshot?.threadId || '';
+    const thread = (db?.threads || []).find((item) => item && item.id === threadId);
+    if (thread?.listingId) listingId = thread.listingId;
+  }
+  const listing = listingId ? (db?.listings || []).find((item) => item && item.id === listingId) || null : null;
+  if (!listing) listingId = '';
+  else if (!accountId) accountId = listing.sellerId || '';
+  const account = findUser(db, accountId);
+  if (!account) accountId = '';
+  const seller = listing ? findUser(db, listing.sellerId) : null;
+  return {
+    listingId,
+    accountId,
+    listingHidden: Boolean(listing && (listing.staffHiddenAt || isPlatformBanned(seller))),
+    accountBanned: isPlatformBanned(account),
+  };
+}
+
+/** True when an in-app notice would put a platform-banned person or a taken-down listing back on screen. */
+export function noticeRevealsConcealed(db, viewerId, notice) {
+  if (!notice) return false;
+  const banned = platformBannedIds(db);
+  const link = String(notice.href || '');
+  if (link.startsWith('chat/')) {
+    const thread = (db?.threads || []).find((row) => row && row.id === link.slice('chat/'.length));
+    if (thread) {
+      const peer = thread.buyerId === viewerId ? thread.sellerId : thread.buyerId;
+      if (banned.has(peer)) return true;
+    }
+  }
+  if (link.startsWith('detail/')) {
+    const listing = (db?.listings || []).find((row) => row && row.id === link.slice('detail/'.length));
+    if (listing && (listing.staffHiddenAt || banned.has(listing.sellerId))) return true;
+  }
+  const ref = String(notice.refId || '');
+  if (!ref) return false;
+  const offer = (db?.offers || []).find((row) => row && row.id === ref);
+  if (offer && banned.has(offer.fromId)) return true;
+  const message = (db?.messages || []).find((row) => row && row.id === ref);
+  if (message && banned.has(message.fromId)) return true;
+  return false;
+}
+
 function redactEmails(value) {
   return String(value ?? '').replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '（電郵已隱藏）');
 }
@@ -78,9 +163,10 @@ export function reporterActivity(reports, now = Date.now()) {
   return byId;
 }
 
-function presentReport(row, activity) {
+function presentReport(row, activity, db) {
   const counts = activity.get(row.reporterId) || { total: 0, recent: 0 };
   const status = reportStatus(row);
+  const targets = resolveReportTargets(db, row);
   return {
     id: row.id,
     reporterId: row.reporterId || '',
@@ -100,6 +186,10 @@ function presentReport(row, activity) {
     recentCount: counts.recent,
     totalCount: counts.total,
     busy: counts.recent >= REPEAT_THRESHOLD,
+    listingId: targets.listingId,
+    accountId: targets.accountId,
+    listingHidden: targets.listingHidden,
+    accountBanned: targets.accountBanned,
   };
 }
 
@@ -116,7 +206,7 @@ export function listModerationReports(db, { status = 'inbox', now = Date.now() }
       return current === wanted;
     })
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    .map((row) => presentReport(row, activity));
+    .map((row) => presentReport(row, activity, db));
   return {
     reports: rows,
     status: wanted,
@@ -137,5 +227,68 @@ export function setReportStatus(db, { reportId, status, staffId, now = Date.now(
   row.statusAt = now;
   row.statusBy = String(staffId || '');
   const activity = reporterActivity(db.reports, now);
-  return { ok: true, report: presentReport(row, activity) };
+  return { ok: true, report: presentReport(row, activity, db) };
+}
+
+export function listModerationBlocks(db) {
+  const blocks = (Array.isArray(db?.blocks) ? db.blocks : [])
+    .filter((row) => row && row.id)
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .map((row) => {
+      const blocker = findUser(db, row.blockerId);
+      const blocked = findUser(db, row.blockedId);
+      return {
+        id: row.id,
+        blockerId: blocker?.id || '',
+        blockerName: redactEmails(blocker?.name || row.blockerName || '街坊'),
+        blockedId: blocked?.id || '',
+        blockedName: redactEmails(blocked?.name || row.blockedName || '街坊'),
+        createdAt: row.createdAt || 0,
+        blockerBanned: isPlatformBanned(blocker),
+        blockedBanned: isPlatformBanned(blocked),
+      };
+    });
+  return { blocks };
+}
+
+/** Hide one listing from ordinary users. Does not change report status or add a user block. */
+export function hideListing(db, { listingId, staffId, confirm, now = Date.now() } = {}) {
+  if (confirm !== true) {
+    return { ok: false, status: 400, error: 'CONFIRM_REQUIRED', message: '請再確認隱藏這件刊登' };
+  }
+  const listing = (db?.listings || []).find((row) => row && row.id === listingId);
+  if (!listing) return { ok: false, status: 404, error: 'NOT_FOUND', message: '找不到這件刊登' };
+  if (!listing.staffHiddenAt) {
+    listing.staffHiddenAt = now;
+    listing.staffHiddenBy = String(staffId || '');
+  }
+  return {
+    ok: true,
+    listing: { id: listing.id, staffHidden: true, staffHiddenAt: listing.staffHiddenAt },
+  };
+}
+
+/** Platform ban. Separate from a user-to-user block, and refused for the acting staff member. */
+export function banUser(db, { userId, staffId, confirm, now = Date.now(), env = process.env } = {}) {
+  if (confirm !== true) {
+    return { ok: false, status: 400, error: 'CONFIRM_REQUIRED', message: '請再確認平台封鎖' };
+  }
+  const targetId = String(userId || '').trim();
+  if (!targetId) return { ok: false, status: 400, error: 'INVALID_INPUT', message: '請選擇要封鎖的帳號' };
+  if (targetId === String(staffId || '')) {
+    return { ok: false, status: 400, error: 'INVALID_INPUT', message: '不能平台封鎖自己' };
+  }
+  const user = findUser(db, targetId);
+  if (!user) return { ok: false, status: 404, error: 'NOT_FOUND', message: '找不到這位街坊' };
+  if (isStaffUser(user, env)) {
+    return { ok: false, status: 400, error: 'INVALID_INPUT', message: '不能平台封鎖審核員' };
+  }
+  if (!user.bannedAt) {
+    user.bannedAt = now;
+    user.bannedBy = String(staffId || '');
+  }
+  return {
+    ok: true,
+    user: { id: user.id, name: user.name || '', banned: true, bannedAt: user.bannedAt },
+  };
 }
