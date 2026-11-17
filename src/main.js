@@ -69,6 +69,9 @@ import {
   markNoticesRead,
   markThreadRead,
   moderationReports,
+  banAccount,
+  hideReportedListing,
+  moderationBlocks,
   priceHint,
   refreshBadges,
   refreshBlocks,
@@ -2421,6 +2424,8 @@ function bindListingShare(root, listing) {
 
 async function renderDetail(id, token = nextView(), { resetGallery = false } = {}) {
   const state = getState();
+  const fromStaff = parseHash().params.from;
+  const backTo = fromStaff === 'moderation' ? 'moderation' : fromStaff === 'blocks' ? 'moderation/blocks' : 'home';
   let l = getListing(id);
   if (state.online) {
     try {
@@ -2429,6 +2434,17 @@ async function renderDetail(id, token = nextView(), { resetGallery = false } = {
       if (err?.code === 'BLOCKED') {
         if (!isView(token)) return;
         blockedListingScreen(err.body?.sellerId || '');
+        return;
+      }
+      if (err?.status === 404) {
+        if (!isView(token)) return;
+        const content = `
+          <header class="topbar">
+            <button class="back" type="button" data-go="${escapeAttr(backTo)}" aria-label="返回">←</button>
+            <h1>商品詳情</h1>
+          </header>
+          <div class="empty">這件刊登已下架</div>`;
+        app.innerHTML = shell(content, { noTab: true });
         return;
       }
       /* use cache */
@@ -2443,7 +2459,7 @@ async function renderDetail(id, token = nextView(), { resetGallery = false } = {
     const thread = getThreadByListing(l.id);
     const content = `
       <header class="topbar">
-        <button class="back" type="button" data-go="home" aria-label="返回">←</button>
+        <button class="back" type="button" data-go="${escapeAttr(backTo)}" aria-label="返回">←</button>
         <h1>商品詳情</h1>
       </header>
       <section class="price-block">
@@ -2492,7 +2508,10 @@ async function renderDetail(id, token = nextView(), { resetGallery = false } = {
     ? ''
     : `<button class="btn ghost" type="button" id="dm-seller">私訊</button>`;
 
-  const actionButtons = responseBar
+  const staffReview = Boolean(state.me.staff && (l.staffHidden || l.sellerBanned));
+  const actionButtons = staffReview
+    ? `<button class="btn ghost" type="button" data-go="${escapeAttr(backTo)}">返回審核</button>`
+    : responseBar
     ? `${responseBar}${dmButton}`
     : isSeller
       ? `
@@ -2564,7 +2583,7 @@ async function renderDetail(id, token = nextView(), { resetGallery = false } = {
   const content = `
     <div class="dock-scroll">
     <header class="topbar">
-      <button class="back" type="button" data-go="home" aria-label="返回">←</button>
+      <button class="back" type="button" data-go="${escapeAttr(backTo)}" aria-label="返回">←</button>
       <h1>商品詳情</h1>
       <button class="topbar-share" type="button" id="share-listing">分享</button>
     </header>
@@ -2575,6 +2594,13 @@ async function renderDetail(id, token = nextView(), { resetGallery = false } = {
         ${sold ? '<span class="pill sold">已售</span>' : ''}
       </div>
       <h2>${escapeHtml(l.title)}</h2>
+      ${
+        staffReview
+          ? `<p class="mod-banner">${l.staffHidden ? '這件刊登已隱藏，一般街坊唔會再見到。' : ''}${
+              l.sellerBanned ? '此賣家已被平台封鎖，一般街坊唔會再見到。' : ''
+            }</p>`
+          : ''
+      }
       ${isSeller ? `<button class="text-link listing-edit" type="button" data-go="edit/${escapeAttr(l.id)}">編輯刊登</button>` : ''}
       <div class="trust-row">${trustHtml(l)}</div>
       <p class="trust-note">鄰里二手 · 成色由賣家自行標示。平台不提供鑑定，也不代為寄倉。</p>
@@ -4057,7 +4083,7 @@ async function renderChat(threadId, token = nextView()) {
     return;
   }
   const state = getState();
-  const l = getListing(thread.listingId) || thread.listing;
+  const l = thread.listingHidden ? null : (getListing(thread.listingId) || thread.listing);
   const meId = state.me.id;
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
   const offer = thread.offer || null;
@@ -4692,6 +4718,18 @@ async function renderUser(id, token = nextView()) {
         .join('')
     : '<p class="meta">尚未有街坊評價</p>';
   const mine = isLoggedIn() && getState().me.id === user.id;
+  const staffViewer = Boolean(getState().me.staff);
+  const staffTools =
+    staffViewer && !mine
+      ? `<div class="staff-tools">
+          ${data.banned ? '<p class="mod-banner">此帳號已被平台封鎖，一般街坊唔會再見到。</p>' : ''}
+          ${
+            data.banned
+              ? '<button class="btn ghost" type="button" disabled>已平台封鎖</button>'
+              : `<button class="btn ghost" type="button" id="staff-ban">平台封鎖</button>`
+          }
+        </div>`
+      : '';
   const content = `
     ${userHeader(user.name)}
     <div class="profile">
@@ -4714,6 +4752,7 @@ async function renderUser(id, token = nextView()) {
             reportLabel: '檢舉這位街坊',
           })
     }
+    ${staffTools}
     <div class="list-pad">
       <div class="section-label">街坊評價</div>
       ${reviewHtml}
@@ -4728,6 +4767,22 @@ async function renderUser(id, token = nextView()) {
   app.innerHTML = shell(content, { noTab: true });
   bindUserBack();
   bindSafety(app);
+  app.querySelector('#staff-ban')?.addEventListener('click', async () => {
+    const button = app.querySelector('#staff-ban');
+    if (button) button.disabled = true;
+    try {
+      const done = await confirmStaffBan(user.id, user.name);
+      if (!done) {
+        if (button) button.disabled = false;
+        return;
+      }
+      toast('已平台封鎖');
+      renderUser(id);
+    } catch (err) {
+      if (button) button.disabled = false;
+      errToast(err, '未能平台封鎖');
+    }
+  });
 }
 
 function showAbout() {
@@ -4841,6 +4896,7 @@ async function renderMe(token = nextView()) {
       ${menuGo('bargains', '我的議價')}
       ${menuGo('blocked', '已封鎖的街坊')}
       ${state.me.staff ? menuGo('moderation', '檢舉審核') : ''}
+      ${state.me.staff ? menuGo('moderation/blocks', '封鎖跟進') : ''}
       <button class="menu-row" type="button" id="notify-toggle" role="switch" aria-checked="${alertPref.enabled ? 'true' : 'false'}" aria-label="訊息提醒">
         <span>訊息提醒</span>
         <span class="notify-control">
@@ -5380,6 +5436,19 @@ async function renderModeration(token = nextView()) {
             const on = row.status === status;
             return `<button type="button" class="btn ${on ? 'primary' : 'ghost'}" data-mod-status="${escapeAttr(status)}" data-mod-id="${escapeAttr(row.id)}" ${on ? 'disabled' : ''}>${escapeHtml(label)}</button>`;
           }).join('');
+          const openListing = row.listingId
+            ? `<button type="button" class="btn ghost" data-go="detail/${escapeAttr(row.listingId)}?from=moderation">睇刊登</button>`
+            : '';
+          const openAccount = row.accountId
+            ? `<button type="button" class="btn ghost" data-go="user/${escapeAttr(row.accountId)}">睇街坊</button>`
+            : '';
+          const hide = row.listingId
+            ? `<button type="button" class="btn ${row.listingHidden ? 'ghost' : 'primary'}" data-mod-hide="${escapeAttr(row.listingId)}" ${row.listingHidden ? 'disabled' : ''}>${row.listingHidden ? '已隱藏' : '隱藏刊登'}</button>`
+            : '';
+          const ban = row.accountId
+            ? `<button type="button" class="btn ghost" data-mod-ban="${escapeAttr(row.accountId)}" data-mod-name="${escapeAttr(row.targetName || '這位街坊')}" ${row.accountBanned ? 'disabled' : ''}>${row.accountBanned ? '已平台封鎖' : '平台封鎖'}</button>`
+            : '';
+          const follow = [openListing, openAccount, hide, ban].filter(Boolean).join('');
           return `<article class="mod-card">
             <div class="mod-top">
               <span class="pill">${escapeHtml(row.targetTypeLabel || '內容')} · ${escapeHtml(row.reasonLabel || '')}</span>
@@ -5391,11 +5460,12 @@ async function renderModeration(token = nextView()) {
             ${row.detail ? `<p>${escapeHtml(row.detail)}</p>` : ''}
             ${snapshotLines(row.snapshot)}
             <div class="mod-actions">${actions}</div>
+            ${follow ? `<div class="mod-actions">${follow}</div>` : ''}
           </article>`;
         })
         .join('')
     : '<div class="empty">這個篩選沒有檢舉</div>';
-  const note = `<p class="photo-hint mod-note">待處理同要跟進會留喺預設清單。標記為惡意或不處理之後，預設清單唔再顯示，可以用上面嘅篩選搵返。檢舉唔會自動隱藏刊登，亦唔會自動封鎖任何人。新檢舉仍會嘗試通知管理員信箱。</p>`;
+  const note = `<p class="photo-hint mod-note">待處理同要跟進會留喺預設清單。標記為惡意或不處理之後，預設清單唔再顯示，可以用上面嘅篩選搵返。檢舉唔會自動隱藏刊登，亦唔會自動封鎖任何人。要隱藏刊登或者平台封鎖帳號，請喺卡片上確認。街坊之間嘅封鎖請去「封鎖跟進」。新檢舉仍會嘗試通知管理員信箱。</p>`;
   const alert = busy ? '<p class="mod-flag mod-note">有人短時間內多次檢舉。請先睇次數，再決定係跟進定當惡意。</p>' : '';
   app.innerHTML = shell(`${header}${filters}${note}${alert}${cards}`, { tab: 'me' });
   app.querySelectorAll('[data-mod-filter]').forEach((btn) => {
@@ -5417,6 +5487,144 @@ async function renderModeration(token = nextView()) {
       } catch (err) {
         btn.disabled = false;
         errToast(err, '未能更新');
+      }
+    });
+  });
+  app.querySelectorAll('[data-mod-hide]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const listingId = btn.getAttribute('data-mod-hide');
+      if (!listingId || btn.disabled) return;
+      btn.disabled = true;
+      try {
+        const done = await confirmStaffHide(listingId);
+        if (!done) {
+          btn.disabled = false;
+          return;
+        }
+        toast('已隱藏刊登');
+        renderModeration();
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '未能隱藏刊登');
+      }
+    });
+  });
+  app.querySelectorAll('[data-mod-ban]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const userId = btn.getAttribute('data-mod-ban');
+      if (!userId || btn.disabled) return;
+      btn.disabled = true;
+      try {
+        const done = await confirmStaffBan(userId, btn.getAttribute('data-mod-name') || '');
+        if (!done) {
+          btn.disabled = false;
+          return;
+        }
+        toast('已平台封鎖');
+        renderModeration();
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '未能平台封鎖');
+      }
+    });
+  });
+}
+
+async function confirmStaffHide(listingId) {
+  if (!getState().me.staff || !listingId) return false;
+  const ok = await confirmAction({
+    title: '隱藏刊登',
+    message: '請再確認。隱藏之後，一般街坊唔會再見到呢件刊登。',
+    confirmLabel: '確認隱藏',
+    cancelLabel: '取消',
+  });
+  if (!ok) return false;
+  await hideReportedListing(listingId);
+  return true;
+}
+
+async function confirmStaffBan(userId, name) {
+  if (!getState().me.staff || !userId) return false;
+  if (userId === getState().me.id) {
+    toast('不能平台封鎖自己');
+    return false;
+  }
+  const who = name || '這位街坊';
+  const ok = await confirmAction({
+    title: '平台封鎖',
+    message: `請再確認平台封鎖「${who}」。封鎖之後，呢個帳號嘅刊登同資料會對所有人隱藏，而且唔可以再當普通會員使用。呢個同街坊之間嘅封鎖唔同。`,
+    confirmLabel: '確認平台封鎖',
+    cancelLabel: '取消',
+  });
+  if (!ok) return false;
+  await banAccount(userId);
+  return true;
+}
+
+async function renderModerationBlocks(token = nextView()) {
+  if (!requireAuth('moderation/blocks')) return;
+  const header = subHeader('封鎖跟進', 'me');
+  app.innerHTML = shell(`${header}<div class="empty">載入中…</div>`, { tab: 'me' });
+  let data = null;
+  let error = null;
+  try {
+    data = await moderationBlocks();
+  } catch (err) {
+    error = err;
+  }
+  if (!isView(token)) return;
+  if (error?.code === 'FORBIDDEN' || !getState().me.staff) {
+    app.innerHTML = shell(`${header}<div class="empty">沒有審核權限</div>`, { tab: 'me' });
+    return;
+  }
+  if (error) {
+    app.innerHTML = shell(`${header}${listErrorHtml('載入封鎖失敗')}`, { tab: 'me' });
+    app.querySelector('#retry-load')?.addEventListener('click', () => renderModerationBlocks());
+    return;
+  }
+  const blocks = Array.isArray(data?.blocks) ? data.blocks : [];
+  const note = `<p class="photo-hint mod-note">呢度係街坊之間嘅封鎖，唔係平台封鎖。可以打開兩邊帳號。如果封鎖係因為濫用，可以再確認平台封鎖被封鎖嘅帳號。街坊封鎖仍然會即時隱藏對方內容，並通知管理員信箱。</p>`;
+  const cards = blocks.length
+    ? blocks
+        .map((row) => {
+          const openBlocker = row.blockerId
+            ? `<button type="button" class="btn ghost" data-go="user/${escapeAttr(row.blockerId)}">睇封鎖者</button>`
+            : '';
+          const openBlocked = row.blockedId
+            ? `<button type="button" class="btn ghost" data-go="user/${escapeAttr(row.blockedId)}">睇被封鎖街坊</button>`
+            : '';
+          const ban = row.blockedId
+            ? `<button type="button" class="btn ghost" data-block-ban="${escapeAttr(row.blockedId)}" data-mod-name="${escapeAttr(row.blockedName || '這位街坊')}" ${row.blockedBanned ? 'disabled' : ''}>${row.blockedBanned ? '已平台封鎖' : '平台封鎖'}</button>`
+            : '';
+          return `<article class="mod-card">
+            <div class="mod-top">
+              <span class="pill">封鎖</span>
+              <span class="meta">${escapeHtml(macauTime(row.createdAt))}</span>
+            </div>
+            <p class="mod-who">${escapeHtml(row.blockerName || '街坊')} → ${escapeHtml(row.blockedName || '街坊')}</p>
+            <p class="meta">${row.blockedBanned ? '被封鎖帳號已被平台封鎖' : '尚未平台封鎖'}</p>
+            <div class="mod-actions">${openBlocker}${openBlocked}${ban}</div>
+          </article>`;
+        })
+        .join('')
+    : '<div class="empty">暫時沒有街坊封鎖</div>';
+  app.innerHTML = shell(`${header}${note}${cards}`, { tab: 'me' });
+  app.querySelectorAll('[data-block-ban]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const userId = btn.getAttribute('data-block-ban');
+      if (!userId || btn.disabled) return;
+      btn.disabled = true;
+      try {
+        const done = await confirmStaffBan(userId, btn.getAttribute('data-mod-name') || '');
+        if (!done) {
+          btn.disabled = false;
+          return;
+        }
+        toast('已平台封鎖');
+        renderModerationBlocks();
+      } catch (err) {
+        btn.disabled = false;
+        errToast(err, '未能平台封鎖');
       }
     });
   });
@@ -5510,7 +5718,8 @@ async function route() {
       await renderBlocked(token);
       break;
     case 'moderation':
-      await renderModeration(token);
+      if (b === 'blocks') await renderModerationBlocks(token);
+      else await renderModeration(token);
       break;
     case 'support':
       renderSupport();

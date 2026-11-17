@@ -127,6 +127,7 @@ export async function api(path, { method = 'GET', body, auth = false, headers = 
   }
 
   if (!res.ok) {
+    if (data?.error === 'ACCOUNT_BANNED') clearToken();
     throw new ApiError(data?.message || data?.error || `請求失敗 (${res.status})`, {
       status: res.status,
       code: data?.error || 'HTTP_ERROR',
@@ -164,6 +165,19 @@ export const ModerationApi = {
   },
   setStatus: (id, status) =>
     api(`/api/moderation/reports/${encodeURIComponent(id)}`, { method: 'PATCH', body: { status }, auth: true }),
+  hideListing: (id) =>
+    api(`/api/moderation/listings/${encodeURIComponent(id)}/hide`, {
+      method: 'POST',
+      body: { confirm: true },
+      auth: true,
+    }),
+  banUser: (id) =>
+    api(`/api/moderation/users/${encodeURIComponent(id)}/ban`, {
+      method: 'POST',
+      body: { confirm: true },
+      auth: true,
+    }),
+  blocks: () => api('/api/moderation/blocks', { auth: true }),
 };
 
 export const SafetyApi = {

@@ -5,8 +5,8 @@ import {
   presentAvatar,
 } from './db.js';
 import { presentPhotoFrames } from '../src/photo-frame.js';
-import { blockedIdsFor } from './safety.js';
 import { reviewAccess, reviewsForListing, trustSummary } from './trust.js';
+import { platformBannedIds, viewerHiddenIds } from './moderation.js';
 
 const DEMO_EMAIL = 'demo@aomai.got';
 const SEED_EMAIL_SUFFIX = '@seed.aomai.got';
@@ -197,7 +197,7 @@ export function seedIfEmpty() {
 
 export function listingDto(l, db, publicBase, viewerId = '') {
   const seller = db.users.find((u) => u.id === l.sellerId);
-  const hidden = blockedIdsFor(db, viewerId);
+  const hidden = viewerHiddenIds(db, viewerId);
   const access = reviewAccess(l, db, viewerId);
   return {
     id: l.id,
@@ -226,6 +226,8 @@ export function listingDto(l, db, publicBase, viewerId = '') {
     photoFrames: presentPhotoFrames(l.photoFrames, (l.photos || []).length),
     sold: Boolean(l.sold),
     removed: Boolean(l.removedAt),
+    staffHidden: Boolean(l.staffHiddenAt),
+    sellerBanned: platformBannedIds(db).has(l.sellerId),
     createdAt: l.createdAt,
   };
 }

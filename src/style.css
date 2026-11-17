@@ -3609,6 +3609,20 @@ button.seller-card:active {
   height: 44px;
 }
 
+.staff-tools {
+  padding: 0 16px 8px;
+}
+
+.staff-tools .btn {
+  width: 100%;
+  min-height: 44px;
+}
+
+.mod-banner {
+  margin: 8px 0 0;
+  font-weight: 700;
+}
+
 /* iOS WKWebView zooms on focus when a text control's computed font-size
    is under 16px, and that visualViewport scale stays after blur.
    Floor every text control. File inputs keep the 100px hit target

@@ -65,7 +65,18 @@ import {
   safetyNoticeMail,
   shouldSuppressNotice,
 } from './safety.js';
-import { isStaffUser, listModerationReports, setReportStatus } from './moderation.js';
+import {
+  banUser,
+  hideListing,
+  isPlatformBanned,
+  isStaffUser,
+  listModerationBlocks,
+  listModerationReports,
+  noticeRevealsConcealed,
+  platformBannedIds,
+  setReportStatus,
+  viewerHiddenIds,
+} from './moderation.js';
 import {
   RESEND_EMAIL_LIMIT,
   RESEND_IP_LIMIT,
@@ -133,6 +144,9 @@ function auth(req, res, next) {
     const db = loadDb();
     const user = db.users.find((u) => u.id === payload.sub);
     if (!user) return res.status(401).json({ error: 'UNAUTHORIZED' });
+    if (isPlatformBanned(user)) {
+      return res.status(403).json({ error: 'ACCOUNT_BANNED', message: '此帳號已被平台封鎖，不能再使用' });
+    }
     req.user = user;
     next();
   } catch {
@@ -147,7 +161,8 @@ function optionalAuth(req, _res, next) {
     try {
       const payload = jwt.verify(token, JWT_SECRET);
       const db = loadDb();
-      req.user = db.users.find((u) => u.id === payload.sub) || null;
+      const user = db.users.find((u) => u.id === payload.sub) || null;
+      req.user = user && !isPlatformBanned(user) ? user : null;
     } catch {
       req.user = null;
     }
@@ -266,7 +281,7 @@ function presentUser(user, req, viewerId = user?.id) {
   const base = publicUser(user, publicBaseFor(req));
   if (!base) return base;
   const db = loadDb();
-  const body = { ...base, trust: trustSummary(user.id, db, { excludeFromIds: blockedIdsFor(db, viewerId) }) };
+  const body = { ...base, trust: trustSummary(user.id, db, { excludeFromIds: viewerHiddenIds(db, viewerId) }) };
   if (user?.id && viewerId === user.id) body.staff = isStaffUser(user);
   return body;
 }
@@ -276,6 +291,16 @@ function requireStaff(req, res, next) {
     return res.status(403).json({ error: 'FORBIDDEN', message: '沒有審核權限' });
   }
   next();
+}
+
+function listingStaffConcealed(listing, db) {
+  return Boolean(listing && (listing.staffHiddenAt || platformBannedIds(db).has(listing.sellerId)));
+}
+
+function visibleNotices(db, userId) {
+  return noticesFor(db, userId).filter(
+    (notice) => !noticeHiddenByBlock(db, userId, notice) && !noticeRevealsConcealed(db, userId, notice)
+  );
 }
 
 async function deliverSafetyMail(payload) {
@@ -373,6 +398,7 @@ function rememberHandoff(db, row) {
 
 function notifyUser(db, { userId, kind, title, body, href, refId }) {
   if (shouldSuppressNotice(db, { userId, href, refId })) return null;
+  if (noticeRevealsConcealed(db, userId, { href, refId })) return null;
   const row = addNotice(db, {
     id: id('n-'),
     userId,
@@ -447,6 +473,9 @@ function threadDto(thread, userId, db, req) {
   const unread =
     thread.buyerId === userId ? Boolean(thread.buyerUnread) : Boolean(thread.sellerUnread);
   const offer = latestOffer(db, thread.listingId, thread.buyerId);
+  const viewer = db.users.find((u) => u.id === userId);
+  const takenDown = Boolean(listing && (listing.staffHiddenAt || platformBannedIds(db).has(listing.sellerId)));
+  const showListing = Boolean(listing) && (!takenDown || isStaffUser(viewer));
   return {
     id: thread.id,
     listingId: thread.listingId,
@@ -459,7 +488,8 @@ function threadDto(thread, userId, db, req) {
     time: relativeTime(thread.updatedAt || thread.createdAt),
     unread,
     messages: msgs.map((m) => messageDto(m, db, base)),
-    listing: listing ? listingDto(listing, db, base, userId) : null,
+    listing: showListing ? listingDto(listing, db, base, userId) : null,
+    listingHidden: takenDown && !showListing,
     offer: offer ? offerDto(offer, db, userId) : null,
   };
 }
@@ -606,6 +636,9 @@ app.post('/api/auth/login', (req, res) => {
   }
   if (!isEmailVerified(user)) {
     return res.status(403).json({ error: 'EMAIL_NOT_VERIFIED', message: LOGIN_UNVERIFIED_MESSAGE });
+  }
+  if (isPlatformBanned(user)) {
+    return res.status(403).json({ error: 'ACCOUNT_BANNED', message: '此帳號已被平台封鎖，不能再使用' });
   }
   touch(db, user.id);
   persist();
@@ -938,6 +971,34 @@ app.patch('/api/moderation/reports/:id', auth, requireStaff, (req, res) => {
   res.json({ ok: true, report: result.report });
 });
 
+app.get('/api/moderation/blocks', auth, requireStaff, (req, res) => {
+  res.json(listModerationBlocks(loadDb()));
+});
+
+app.post('/api/moderation/listings/:id/hide', auth, requireStaff, (req, res) => {
+  const db = loadDb();
+  const result = hideListing(db, {
+    listingId: req.params.id,
+    staffId: req.user.id,
+    confirm: req.body?.confirm === true,
+  });
+  if (!result.ok) return res.status(result.status).json({ error: result.error, message: result.message });
+  persist();
+  res.json({ ok: true, listing: result.listing });
+});
+
+app.post('/api/moderation/users/:id/ban', auth, requireStaff, (req, res) => {
+  const db = loadDb();
+  const result = banUser(db, {
+    userId: req.params.id,
+    staffId: req.user.id,
+    confirm: req.body?.confirm === true,
+  });
+  if (!result.ok) return res.status(result.status).json({ error: result.error, message: result.message });
+  persist();
+  res.json({ ok: true, user: result.user });
+});
+
 function priceBound(value) {
   if (value === undefined || value === null) return null;
   const s = String(value).trim();
@@ -967,6 +1028,8 @@ app.get('/api/listings', optionalAuth, (req, res) => {
     const hidden = blockedIdsFor(db, viewerId);
     if (hidden.size) list = list.filter((l) => !hidden.has(l.sellerId));
   }
+  const banned = platformBannedIds(db);
+  if (banned.size) list = list.filter((l) => !banned.has(l.sellerId));
   const paged = pageWindow(list, req.query);
   if (paged.error) return res.status(400).json({ error: 'INVALID_INPUT', message: '頁數不正確' });
   res.json({
@@ -982,7 +1045,10 @@ app.get('/api/listings', optionalAuth, (req, res) => {
 app.get('/api/listings/:id', optionalAuth, (req, res) => {
   const db = loadDb();
   const l = db.listings.find((x) => x.id === req.params.id);
-  if (!l) return res.status(404).json({ error: 'NOT_FOUND' });
+  if (!l) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
+  if (listingStaffConcealed(l, db) && !isStaffUser(req.user)) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: '這件刊登已下架' });
+  }
   if (req.user && hasBlock(db, req.user.id, l.sellerId)) {
     return res.status(403).json({
       error: 'BLOCKED',
@@ -1085,7 +1151,7 @@ app.patch('/api/listings/:id', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
-  if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  if (listing.removedAt || listing.staffHiddenAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   if (listing.sellerId !== req.user.id) {
     return res.status(403).json({ error: 'FORBIDDEN', message: '只有刊登者可以修改' });
   }
@@ -1114,7 +1180,7 @@ app.patch('/api/listings/:id/sold', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
-  if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  if (listing.removedAt || listing.staffHiddenAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   if (listing.sellerId !== req.user.id) {
     return res.status(403).json({ error: 'FORBIDDEN', message: '只有賣家可以標示已售出' });
   }
@@ -1183,7 +1249,7 @@ app.delete('/api/listings/:id', auth, (req, res) => {
 app.post('/api/listings/:id/confirm-receipt', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
-  if (listing?.removedAt && !listing.sold) {
+  if ((listing?.removedAt || listing?.staffHiddenAt) && !listing.sold) {
     return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   }
   const result = applyConfirmReceipt(listing, db, req.user.id);
@@ -1211,7 +1277,9 @@ app.post('/api/listings/:id/want', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND' });
-  if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  if (listing.removedAt || listing.staffHiddenAt || platformBannedIds(db).has(listing.sellerId)) {
+    return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  }
   if (hasBlock(db, req.user.id, listing.sellerId)) {
     return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
   }
@@ -1235,10 +1303,13 @@ app.post('/api/listings/:id/thread', auth, (req, res) => {
   if (hasBlock(db, req.user.id, listing.sellerId)) {
     return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
   }
+  if (platformBannedIds(db).has(listing.sellerId)) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: '這件刊登已下架' });
+  }
   const existing = db.threads.find(
     (t) => t.listingId === listing.id && t.buyerId === req.user.id && t.sellerId === listing.sellerId
   );
-  if (listing.removedAt && !existing) {
+  if ((listing.removedAt || listing.staffHiddenAt) && !existing) {
     return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   }
   const thread = ensureThread(db, listing, req.user.id);
@@ -1262,7 +1333,7 @@ app.get('/api/wants', auth, (req, res) => {
     .map((w) => w.listingId)
     .filter((lid) => {
       const row = db.listings.find((l) => l.id === lid);
-      return row && !row.removedAt && !hasBlock(db, req.user.id, row.sellerId);
+      return row && !row.removedAt && !row.staffHiddenAt && !platformBannedIds(db).has(row.sellerId) && !hasBlock(db, req.user.id, row.sellerId);
     });
   const listings = ids
     .map((lid) => db.listings.find((l) => l.id === lid))
@@ -1276,7 +1347,9 @@ app.post('/api/listings/:id/offers', auth, (req, res) => {
   const db = loadDb();
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
-  if (listing.removedAt) return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  if (listing.removedAt || listing.staffHiddenAt || platformBannedIds(db).has(listing.sellerId)) {
+    return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
+  }
   if (listing.sold) return res.status(400).json({ error: 'LISTING_SOLD', message: '此商品已售出' });
   if (listing.sellerId === req.user.id) {
     return res.status(400).json({ error: 'OWN_LISTING', message: '不能對自己的刊登議價' });
@@ -1360,6 +1433,9 @@ app.get('/api/listings/:id/offers', auth, (req, res) => {
   const listing = db.listings.find((l) => l.id === req.params.id);
   if (!listing) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到商品' });
   const isSeller = listing.sellerId === req.user.id;
+  if (listingStaffConcealed(listing, db) && !isStaffUser(req.user)) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: '這件刊登已下架' });
+  }
   if (!isSeller && hasBlock(db, req.user.id, listing.sellerId)) {
     return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
   }
@@ -1374,11 +1450,14 @@ app.get('/api/listings/:id/offers', auth, (req, res) => {
 
 app.get('/api/offers/mine', auth, (req, res) => {
   const db = loadDb();
+  const banned = platformBannedIds(db);
   const offers = db.offers
     .filter((o) => o.fromId === req.user.id && !o.buyerHiddenAt)
     .filter((o) => {
       const listing = db.listings.find((l) => l.id === o.listingId);
-      return !listing || !hasBlock(db, req.user.id, listing.sellerId);
+      if (!listing) return true;
+      if (listing.staffHiddenAt || banned.has(listing.sellerId)) return false;
+      return !hasBlock(db, req.user.id, listing.sellerId);
     })
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
@@ -1387,9 +1466,10 @@ app.get('/api/offers/mine', auth, (req, res) => {
 
 app.get('/api/offers/incoming', auth, (req, res) => {
   const db = loadDb();
-  const mine = new Set(db.listings.filter((l) => l.sellerId === req.user.id).map((l) => l.id));
+  const banned = platformBannedIds(db);
+  const mine = new Set(db.listings.filter((l) => l.sellerId === req.user.id && !l.staffHiddenAt).map((l) => l.id));
   const offers = db.offers
-    .filter((o) => mine.has(o.listingId) && !o.sellerHiddenAt && !hasBlock(db, req.user.id, o.fromId))
+    .filter((o) => mine.has(o.listingId) && !o.sellerHiddenAt && !hasBlock(db, req.user.id, o.fromId) && !banned.has(o.fromId))
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
@@ -1424,7 +1504,7 @@ app.patch('/api/offers/:id', auth, (req, res) => {
   const isBuyer = offer.fromId === req.user.id;
   // A buyer can still withdraw a pending bid after the listing is marked sold.
   // Every other update stays blocked, including strangers, so the sold response stays the same.
-  if (listing.removedAt && !(action === 'cancel' && isBuyer)) {
+  if ((listing.removedAt || listing.staffHiddenAt || platformBannedIds(db).has(listing.sellerId)) && !(action === 'cancel' && isBuyer)) {
     return res.status(400).json({ error: 'LISTING_REMOVED', message: '這件刊登已移除' });
   }
   if (listing.sold && !(action === 'cancel' && isBuyer)) {
@@ -1629,7 +1709,7 @@ app.get('/api/threads', auth, (req, res) => {
     .filter((t) => (t.buyerId === req.user.id || t.sellerId === req.user.id) && !threadHiddenFor(t, req.user.id))
     .filter((t) => {
       const peerId = t.buyerId === req.user.id ? t.sellerId : t.buyerId;
-      return !hasBlock(db, req.user.id, peerId);
+      return !hasBlock(db, req.user.id, peerId) && !platformBannedIds(db).has(peerId);
     })
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
     .map((t) => threadDto(t, req.user.id, db, req));
@@ -1651,6 +1731,9 @@ app.get('/api/threads/:id', auth, (req, res) => {
       peerId,
     });
   }
+  if (platformBannedIds(db).has(peerId) && !isStaffUser(req.user)) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: '找不到對話' });
+  }
   if (thread.buyerId === req.user.id) thread.buyerUnread = false;
   else thread.sellerUnread = false;
   touch(db, req.user.id);
@@ -1668,6 +1751,9 @@ app.post('/api/threads/:id/messages', auth, (req, res) => {
   const peerId = thread.buyerId === req.user.id ? thread.sellerId : thread.buyerId;
   if (hasBlock(db, req.user.id, peerId)) {
     return res.status(403).json({ error: 'BLOCKED', message: '你已封鎖這位街坊' });
+  }
+  if (platformBannedIds(db).has(peerId)) {
+    return res.status(403).json({ error: 'ACCOUNT_BANNED', message: '這位街坊已不能使用澳賣GOT' });
   }
   const text = String(req.body?.text || '').trim();
   const incomingPhotos = req.body?.photos;
@@ -1758,13 +1844,13 @@ app.delete('/api/threads/:id/messages/:messageId', auth, (req, res) => {
 
 app.get('/api/badges', auth, (req, res) => {
   const db = loadDb();
-  const notices = noticesFor(db, req.user.id).filter((n) => !noticeHiddenByBlock(db, req.user.id, n) && !n.read).length;
+  const notices = visibleNotices(db, req.user.id).filter((n) => !n.read).length;
   res.json({ ...badgeCountsFor(db, req.user.id), notices });
 });
 
 app.get('/api/notifications', auth, (req, res) => {
   const db = loadDb();
-  const notices = noticesFor(db, req.user.id).filter((n) => !noticeHiddenByBlock(db, req.user.id, n));
+  const notices = visibleNotices(db, req.user.id);
   res.json({ notices, unread: notices.filter((n) => !n.read).length });
 });
 
@@ -1773,7 +1859,7 @@ app.post('/api/notifications/read', auth, (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
   markNoticesRead(db, req.user.id, ids);
   persist();
-  const notices = noticesFor(db, req.user.id).filter((n) => !noticeHiddenByBlock(db, req.user.id, n));
+  const notices = visibleNotices(db, req.user.id);
   res.json({ notices, unread: notices.filter((n) => !n.read).length });
 });
 
@@ -1850,14 +1936,18 @@ app.get('/api/users/:id', optionalAuth, (req, res) => {
   const user = db.users.find((u) => u.id === req.params.id);
   if (!user) return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這位街坊' });
   const viewerId = req.user?.id || '';
+  const staffViewer = isStaffUser(req.user);
+  if (isPlatformBanned(user) && !staffViewer) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: '找不到這位街坊' });
+  }
   const profile = presentUser(user, req, viewerId);
   delete profile.email;
   if (viewerId && hasBlock(db, viewerId, user.id)) {
-    return res.json({ user: profile, listings: [], reviews: [], blocked: true });
+    return res.json({ user: profile, listings: [], reviews: [], blocked: true, banned: false });
   }
-  const hidden = blockedIdsFor(db, viewerId);
+  const hidden = viewerHiddenIds(db, viewerId);
   const listings = db.listings
-    .filter((l) => l.sellerId === user.id && !l.removedAt)
+    .filter((l) => l.sellerId === user.id && !l.removedAt && (staffViewer || !l.staffHiddenAt))
     .sort((a, b) => b.createdAt - a.createdAt)
     .map((l) => listingDto(l, db, publicBaseFor(req), viewerId));
   const reviews = (db.reviews || [])
@@ -1865,7 +1955,7 @@ app.get('/api/users/:id', optionalAuth, (req, res) => {
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, 20)
     .map((r) => presentReview(r, db));
-  res.json({ user: profile, listings, reviews, blocked: false });
+  res.json({ user: profile, listings, reviews, blocked: false, banned: isPlatformBanned(user) });
 });
 
 app.post('/api/listings/:id/reviews', auth, (req, res) => {

@@ -292,7 +292,7 @@ export async function refreshListings(params = {}) {
   if (!scoped) {
     const hidden = new Set(state.blockedIds || []);
     const kept = state.listings.filter(
-      (l) => l.sold && !hidden.has(l.sellerId) && !rows.some((n) => n.id === l.id)
+      (l) => l.sold && !l.staffHidden && !l.sellerBanned && !hidden.has(l.sellerId) && !rows.some((n) => n.id === l.id)
     );
     state.listings = [...rows, ...kept];
   } else {
@@ -330,7 +330,7 @@ export async function refreshListing(id) {
   try {
     ({ listing } = await ListingsApi.get(id));
   } catch (err) {
-    if (err?.code === 'BLOCKED') state.listings = state.listings.filter((row) => row.id !== id);
+    if (err?.code === 'BLOCKED' || err?.status === 404) state.listings = state.listings.filter((row) => row.id !== id);
     throw err;
   }
   upsertListing(listing);
@@ -779,6 +779,18 @@ export async function moderationReports(status) {
 
 export async function setReportStatus(id, status) {
   return ModerationApi.setStatus(id, status);
+}
+
+export async function hideReportedListing(id) {
+  return ModerationApi.hideListing(id);
+}
+
+export async function banAccount(userId) {
+  return ModerationApi.banUser(userId);
+}
+
+export async function moderationBlocks() {
+  return ModerationApi.blocks();
 }
 
 /** Deletes the signed-in account, then ends this session. */
