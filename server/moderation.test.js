@@ -6,13 +6,18 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  accountBannedNotice,
   banUser,
   hideListing,
   isStaffUser,
   listModerationBlocks,
   listModerationReports,
+  listingHiddenNotice,
+  noticeRevealsConcealed,
   setReportStatus,
 } from './moderation.js';
+import { addNotice, noticesFor } from './notices.js';
+import { createReport } from './safety.js';
 import { registerAndLogin, testServerEnv } from './test-account.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -272,6 +277,94 @@ test('hiding a listing and banning an account are separate from report status an
   assert.equal(JSON.stringify(blockInbox).includes('@'), false);
 });
 
+test('the reported person is notified only after a confirmed hide or platform ban', () => {
+  const now = Date.now();
+  const reporterName = '投訴人阿強';
+  const db = {
+    users: [
+      { id: 'staff', name: '審核員' },
+      { id: 'seller', name: '賣家', email: 'seller-secret@example.com' },
+      { id: 'other-staff', name: '另一位審核員' },
+      { id: 'reporter', name: reporterName, email: 'reporter-secret@example.com' },
+    ],
+    listings: [{ id: 'l-1', title: '被檢舉風扇', sellerId: 'seller' }],
+    reports: [],
+    notices: [],
+    blocks: [],
+    offers: [],
+    messages: [],
+    threads: [],
+  };
+  const env = { MOD_STAFF: '審核員,另一位審核員' };
+  const created = createReport(db, {
+    id: 'rep-1',
+    reporter: db.users[3],
+    targetType: 'listing',
+    targetId: 'l-1',
+    reason: 'spam',
+    detail: '請看 hidden@example.com',
+    now,
+  });
+  assert.equal(created.ok, true);
+  assert.deepEqual(db.notices, []);
+  for (const status of ['follow', 'done', 'dismissed', 'malicious', 'open']) {
+    const marked = setReportStatus(db, { reportId: 'rep-1', status, staffId: 'staff', now });
+    assert.equal(marked.ok, true);
+    assert.equal(marked.notice, undefined);
+    assert.deepEqual(db.notices, []);
+  }
+
+  const unconfirmed = hideListing(db, { listingId: 'l-1', staffId: 'staff', confirm: false, now });
+  assert.equal(unconfirmed.ok, false);
+  assert.equal(unconfirmed.notice, undefined);
+  assert.equal(db.listings[0].staffHiddenAt, undefined);
+
+  const hidden = hideListing(db, { listingId: 'l-1', staffId: 'staff', confirm: true, now });
+  assert.equal(hidden.notice.userId, 'seller');
+  assert.equal(hidden.notice.kind, 'moderation');
+  assert.equal(hidden.notice.href, '');
+  assert.match(hidden.notice.body, /已被隱藏/);
+  assert.match(hidden.notice.body, /mogot.app@gmail.com/);
+  assert.equal(hidden.notice.body.includes(reporterName), false);
+  assert.equal(hidden.notice.body.includes('reporter-secret'), false);
+  assert.equal(hidden.notice.body.includes('hidden@example.com'), false);
+  assert.equal(hidden.notice.body.includes('檢舉人'), false);
+  assert.ok(hidden.notice.body.length <= 140);
+  assert.equal(noticeRevealsConcealed(db, 'seller', hidden.notice), false);
+  addNotice(db, { id: 'n-hide', ...hidden.notice, createdAt: now });
+  assert.equal(noticesFor(db, 'seller').some((row) => row.id === 'n-hide' && !row.read), true);
+  const again = hideListing(db, { listingId: 'l-1', staffId: 'staff', confirm: true, now: now + 1 });
+  assert.equal(again.ok, true);
+  assert.equal(again.notice, null);
+
+  const long = listingHiddenNotice({ sellerId: 'seller', title: '很長的名稱'.repeat(40) });
+  assert.match(long.body, /mogot.app@gmail.com/);
+  assert.ok(long.body.length <= 140);
+  assert.equal(long.body.includes(reporterName), false);
+
+  const missingConfirm = banUser(db, { userId: 'seller', staffId: 'staff', confirm: false, now, env });
+  assert.equal(missingConfirm.ok, false);
+  assert.equal(missingConfirm.notice, undefined);
+  const self = banUser(db, { userId: 'staff', staffId: 'staff', confirm: true, now, env });
+  assert.equal(self.ok, false);
+  assert.equal(self.notice, undefined);
+  const otherStaff = banUser(db, { userId: 'other-staff', staffId: 'staff', confirm: true, now, env });
+  assert.equal(otherStaff.ok, false);
+  assert.equal(otherStaff.notice, undefined);
+  assert.equal(db.users.find((row) => row.id === 'seller').bannedAt, undefined);
+
+  const banned = banUser(db, { userId: 'seller', staffId: 'staff', confirm: true, now, env });
+  assert.equal(banned.notice.userId, 'seller');
+  assert.match(banned.notice.body, /平台封鎖/);
+  assert.match(banned.notice.body, /mogot.app@gmail.com/);
+  assert.equal(banned.notice.body.includes(reporterName), false);
+  assert.equal(banned.notice.body.includes('審核員'), false);
+  assert.equal(banned.notice.href, '');
+  assert.equal(accountBannedNotice('seller').body, banned.notice.body);
+  const repeat = banUser(db, { userId: 'seller', staffId: 'staff', confirm: true, now: now + 2, env });
+  assert.equal(repeat.notice, null);
+});
+
 test('staff can hide a reported listing, and ordinary users no longer see it', async (t) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aomai-hide-'));
   const port = 31000 + Math.floor(Math.random() * 10000);
@@ -322,6 +415,30 @@ test('staff can hide a reported listing, and ordinary users no longer see it', a
   });
   assert.equal(reported.status, 201);
 
+  async function sellerNotices() {
+    const res = await fetch(`${base}/api/notifications`, { headers: sellerAuth });
+    assert.equal(res.status, 200, await res.clone().text());
+    return (await res.json()).notices || [];
+  }
+  const afterReport = await sellerNotices();
+  assert.equal(afterReport.some((row) => row.kind === 'moderation'), false);
+
+  const inboxBefore = await fetch(`${base}/api/moderation/reports`, { headers: staffAuth });
+  assert.equal(inboxBefore.status, 200, await inboxBefore.clone().text());
+  const openReport = (await inboxBefore.json()).reports.find((row) => row.listingId === listingId);
+  assert.ok(openReport);
+  for (const status of ['follow', 'done', 'dismissed', 'malicious', 'open']) {
+    const patched = await fetch(`${base}/api/moderation/reports/${openReport.id}`, {
+      method: 'PATCH',
+      headers: staffAuth,
+      body: JSON.stringify({ status }),
+    });
+    assert.equal(patched.status, 200, await patched.clone().text());
+    const notes = await sellerNotices();
+    assert.equal(notes.some((row) => row.kind === 'moderation'), false);
+    assert.equal(notes.some((row) => String(row.body || '').includes('投訴人')), false);
+  }
+
   const denied = await fetch(`${base}/api/moderation/listings/${listingId}/hide`, {
     method: 'POST',
     headers: reporterAuth,
@@ -334,6 +451,7 @@ test('staff can hide a reported listing, and ordinary users no longer see it', a
     body: JSON.stringify({}),
   });
   assert.equal(unconfirmed.status, 400);
+  assert.equal((await sellerNotices()).some((row) => row.kind === 'moderation'), false);
 
   const before = await fetch(`${base}/api/listings`);
   const beforeIds = (await before.json()).listings.map((row) => row.id);
@@ -370,6 +488,14 @@ test('staff can hide a reported listing, and ordinary users no longer see it', a
   assert.equal(stored.blocks.length, 0);
   assert.equal(stored.listings.find((row) => row.id === listingId).staffHiddenAt > 0, true);
   assert.equal(stored.listings.find((row) => row.id === listingId).removedAt, undefined);
+  const told = (await sellerNotices()).filter((row) => row.kind === 'moderation');
+  assert.equal(told.length, 1);
+  assert.match(told[0].body, /已被隱藏/);
+  assert.match(told[0].body, /mogot.app@gmail.com/);
+  assert.equal(told[0].body.includes('投訴人'), false);
+  assert.equal(told[0].body.includes('hide-reporter'), false);
+  assert.equal(told[0].href, '');
+  assert.equal(stored.notices.filter((row) => row.userId === seller.user.id && row.kind === 'moderation').length, 1);
 });
 
 test('staff can platform-ban an account without turning it into a user block', async (t) => {
@@ -429,6 +555,9 @@ test('staff can platform-ban an account without turning it into a user block', a
     body: JSON.stringify({ confirm: false }),
   });
   assert.equal(unconfirmed.status, 400);
+  const beforeBan = await fetch(`${base}/api/notifications`, { headers: sellerAuth });
+  assert.equal(beforeBan.status, 200, await beforeBan.clone().text());
+  assert.equal(((await beforeBan.json()).notices || []).some((row) => /平台封鎖/.test(row.body || '')), false);
   const self = await fetch(`${base}/api/moderation/users/${staff.user.id}/ban`, {
     method: 'POST',
     headers: staffAuth,
@@ -479,6 +608,15 @@ test('staff can platform-ban an account without turning it into a user block', a
   const stored = JSON.parse(fs.readFileSync(path.join(tmp, 'data', 'aomai.json'), 'utf8'));
   assert.equal(stored.blocks.length, 0);
   assert.equal(stored.users.find((row) => row.id === seller.user.id).bannedAt > 0, true);
+  const banNotes = (stored.notices || []).filter((row) => row.userId === seller.user.id && row.kind === 'moderation');
+  assert.equal(banNotes.length, 1);
+  assert.match(banNotes[0].body, /平台封鎖/);
+  assert.match(banNotes[0].body, /mogot.app@gmail.com/);
+  assert.equal(banNotes[0].body.includes('審核員'), false);
+  assert.equal(banNotes[0].body.includes('買家'), false);
+  assert.equal(banNotes[0].body.includes('@'), true);
+  const mailed = fs.existsSync(outbox) ? fs.readFileSync(outbox, 'utf8') : '';
+  assert.equal(mailed.includes('你的帳號已被平台封鎖'), false);
 });
 
 test('staff can review user blocks, while a block still only hides content from the blocker', async (t) => {

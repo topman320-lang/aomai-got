@@ -4,6 +4,7 @@ import {
   applyConfirmReceipt,
   backfillDeals,
   badgeCountsFor,
+  markOffersSeen,
   lastActiveHint,
   priceHint,
   replyHint,
@@ -120,6 +121,39 @@ test('a hidden thread or offer does not count on that person\'s badge', () => {
   assert.deepEqual(badgeCountsFor(db, 'buyer'), { messages: 0, offers: 0 });
   assert.deepEqual(badgeCountsFor(db, 'seller'), { messages: 1, offers: 0 });
   assert.deepEqual(badgeCountsFor(db, 'buyer2'), { messages: 0, offers: 1 });
+});
+
+test('議價 reminder clears after the revision is seen and returns when it changes', () => {
+  const db = emptyDb();
+  db.listings.push({ id: 'open', sellerId: 'seller', sold: false });
+  db.threads.push({ buyerId: 'buyer', sellerId: 'seller', buyerUnread: false, sellerUnread: true });
+  db.notices = [{ id: 'n1', userId: 'seller', readAt: null, kind: 'offer', body: '新出價' }];
+  db.offers.push({ id: 'o1', listingId: 'open', fromId: 'buyer', status: 'pending', updatedAt: 10 });
+  assert.equal(badgeCountsFor(db, 'seller').offers, 1);
+  assert.equal(badgeCountsFor(db, 'seller').messages, 1);
+
+  assert.equal(markOffersSeen(db, 'seller', [{ id: 'o1', updatedAt: 9 }]), 0);
+  assert.equal(badgeCountsFor(db, 'seller').offers, 1);
+  assert.equal(markOffersSeen(db, 'stranger', [{ id: 'o1', updatedAt: 10 }]), 0);
+  assert.equal(markOffersSeen(db, 'seller', [{ id: 'o1', updatedAt: 10 }]), 1);
+  assert.deepEqual(badgeCountsFor(db, 'seller'), { messages: 1, offers: 0 });
+  assert.equal(db.notices[0].readAt, null);
+  assert.equal(db.threads[0].sellerUnread, true);
+  assert.equal(markOffersSeen(db, 'seller', [{ id: 'o1', updatedAt: 10 }]), 0);
+
+  db.offers[0].status = 'pending';
+  db.offers[0].updatedAt = 20;
+  assert.equal(badgeCountsFor(db, 'seller').offers, 1);
+  assert.equal(badgeCountsFor(db, 'buyer').offers, 0);
+
+  db.offers[0].status = 'countered';
+  db.offers[0].updatedAt = 30;
+  assert.equal(badgeCountsFor(db, 'seller').offers, 0);
+  assert.equal(badgeCountsFor(db, 'buyer').offers, 1);
+  assert.equal(markOffersSeen(db, 'buyer', [{ id: 'o1', updatedAt: 30 }]), 1);
+  assert.equal(badgeCountsFor(db, 'buyer').offers, 0);
+  assert.equal(badgeCountsFor(db, 'buyer').messages, 0);
+  assert.equal(db.threads[0].sellerUnread, true);
 });
 
 test('review access is only for the two people on a completed deal', () => {

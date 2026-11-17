@@ -16,6 +16,7 @@ import {
   healthCheck,
   setToken,
 } from './api.js';
+import { countUnseenOfferReminders, mergeOfferSeen } from './reminders.js';
 
 export const CATEGORIES = [
   '全部',
@@ -106,6 +107,9 @@ export function isLoggedIn() {
 
 /** Bumps on login and logout so in-flight notices cannot surface after a switch. */
 let sessionGen = 1;
+/** Bumps when this session marks notices or offer reminders, so a stale poll cannot restore them. */
+let noticesEpoch = 0;
+let offerSeenEpoch = 0;
 
 export function sessionGeneration() {
   return sessionGen;
@@ -140,27 +144,19 @@ export function syncBadges() {
   }
   const me = state.me.id;
   const messages = state.threads.filter((t) => t.unread).length;
-  const seen = new Set();
-  let offers = 0;
-  const consider = (offer) => {
-    if (!offer || seen.has(offer.id)) return;
-    seen.add(offer.id);
-    const listing = state.listings.find((l) => l.id === offer.listingId);
-    if (listing?.sold || listing?.removed) return;
-    const status = offer.status || 'pending';
-    if (offer.fromId === me && status === 'countered') {
-      offers += 1;
-      return;
-    }
-    if (offer.fromId !== me && status === 'pending') {
-      const incoming = (state.incomingOffers || []).some((item) => item.id === offer.id);
-      if (incoming || listing?.sellerId === me) offers += 1;
-    }
-  };
-  for (const offer of state.incomingOffers || []) consider(offer);
-  for (const offer of state.offers || []) consider(offer);
+  const offers = countUnseenOfferReminders({
+    userId: me,
+    incoming: state.incomingOffers,
+    mine: state.offers,
+    listings: state.listings,
+  });
   state.badges = { messages, offers, notices: state.badges?.notices || 0 };
   return state.badges;
+}
+
+function withOfferSeen(remote, previous) {
+  const prior = new Map((previous || []).filter((row) => row && row.id).map((row) => [row.id, row]));
+  return (remote || []).map((row) => mergeOfferSeen(prior.get(row.id), row));
 }
 
 export function getListing(id) {
@@ -384,10 +380,11 @@ export async function refreshMyOffers() {
   const session = sessionGeneration();
   const { offers } = await OffersApi.mine();
   if (session !== sessionGeneration() || !isLoggedIn()) return [];
-  const mineIds = new Set(offers.map((o) => o.id));
-  state.offers = [...offers, ...state.offers.filter((o) => o.fromId !== state.me.id && !mineIds.has(o.id))];
+  const merged = withOfferSeen(offers, state.offers);
+  const mineIds = new Set(merged.map((o) => o.id));
+  state.offers = [...merged, ...state.offers.filter((o) => o.fromId !== state.me.id && !mineIds.has(o.id))];
   syncBadges();
-  return offers;
+  return merged;
 }
 
 export async function refreshIncomingOffers() {
@@ -398,11 +395,12 @@ export async function refreshIncomingOffers() {
   const session = sessionGeneration();
   const { offers } = await OffersApi.incoming();
   if (session !== sessionGeneration() || !isLoggedIn()) return [];
-  state.incomingOffers = offers;
-  const ids = new Set(offers.map((o) => o.id));
-  state.offers = [...offers, ...state.offers.filter((o) => !ids.has(o.id))];
+  const merged = withOfferSeen(offers, [...(state.incomingOffers || []), ...(state.offers || [])]);
+  state.incomingOffers = merged;
+  const ids = new Set(merged.map((o) => o.id));
+  state.offers = [...merged, ...state.offers.filter((o) => !ids.has(o.id))];
   syncBadges();
-  return offers;
+  return merged;
 }
 
 export async function refreshBadges() {
@@ -411,13 +409,16 @@ export async function refreshBadges() {
     return state.badges;
   }
   const session = sessionGeneration();
+  const seenEpoch = offerSeenEpoch;
+  const noteEpoch = noticesEpoch;
   try {
     const data = await BadgesApi.get();
     if (session !== sessionGeneration() || !isLoggedIn()) return state.badges;
+    const current = getBadges();
     state.badges = {
       messages: Number(data?.messages) || 0,
-      offers: Number(data?.offers) || 0,
-      notices: Number(data?.notices) || 0,
+      offers: seenEpoch === offerSeenEpoch ? Number(data?.offers) || 0 : current.offers,
+      notices: noteEpoch === noticesEpoch ? Number(data?.notices) || 0 : current.notices,
     };
   } catch {
     if (session === sessionGeneration() && isLoggedIn()) syncBadges();
@@ -554,8 +555,9 @@ export async function refreshNotices() {
     return [];
   }
   const session = sessionGeneration();
+  const epoch = noticesEpoch;
   const data = await NoticesApi.list();
-  if (session !== sessionGeneration() || !isLoggedIn()) return [];
+  if (session !== sessionGeneration() || !isLoggedIn() || epoch !== noticesEpoch) return state.notices;
   state.notices = data.notices || [];
   state.badges = { ...getBadges(), notices: Number(data.unread) || state.notices.filter((n) => !n.read).length };
   return state.notices;
@@ -564,9 +566,37 @@ export async function refreshNotices() {
 export async function markNoticesRead(ids) {
   if (!isLoggedIn()) return [];
   const data = await NoticesApi.read(ids);
+  noticesEpoch += 1;
   state.notices = data.notices || [];
   state.badges = { ...getBadges(), notices: Number(data.unread) || 0 };
   return state.notices;
+}
+
+function stampOffersSeen(items) {
+  const acked = new Set((items || []).map((item) => `${item.id}:${Number(item.updatedAt) || 0}`));
+  const stamp = (offer) => {
+    if (!offer) return offer;
+    const revision = Number(offer.updatedAt || offer.createdAt) || 0;
+    if (!acked.has(`${offer.id}:${revision}`)) return offer;
+    return { ...offer, seenUpdatedAt: revision };
+  };
+  state.offers = (state.offers || []).map(stamp);
+  state.incomingOffers = (state.incomingOffers || []).map(stamp);
+}
+
+/** Mark the 議價 revisions just shown. Does not change thread unread or notice read state. */
+export async function markOffersSeen(items) {
+  if (!isLoggedIn()) return getBadges();
+  const list = (Array.isArray(items) ? items : []).filter((item) => item && item.id && Number(item.updatedAt));
+  if (!list.length) return getBadges();
+  const data = await OffersApi.seen(list);
+  offerSeenEpoch += 1;
+  stampOffersSeen(list);
+  syncBadges();
+  if (data && Number.isFinite(Number(data.offers))) {
+    state.badges = { ...getBadges(), offers: Number(data.offers) || 0 };
+  }
+  return getBadges();
 }
 
 export async function openListingThread(listingId) {

@@ -7,6 +7,7 @@ test('訊息 empty state is only when there is nothing to show', () => {
   assert.equal(messagesPane({ threadCount: 0, noticeCount: 0 }), 'empty');
   assert.equal(messagesPane({ threadCount: 1, noticeCount: 0 }), 'list');
   assert.equal(messagesPane({ threadCount: 0, noticeCount: 3 }), 'list');
+  assert.equal(messagesPane({ threadCount: 0, noticeCount: 5 }), 'list');
   assert.equal(messagesPane({ threadCount: 2, noticeCount: 1 }), 'list');
 });
 
