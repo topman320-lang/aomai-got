@@ -1,8 +1,10 @@
 /** Staff review of stored reports and user-to-user blocks.
  * Marking a report status does not hide a listing or ban anyone.
- * Hiding a listing and platform ban are separate confirmed actions. */
+ * Hiding a listing and platform ban are separate confirmed actions.
+ * The reported person is notified only after one of those actions takes effect. */
 
 import { REPORT_REASONS, blockedIdsFor, reasonById } from './safety.js';
+import { SUPPORT_EMAIL } from './public-pages.js';
 
 /** Comma-separated user ids and/or exact display names. Empty means nobody is staff. */
 export function staffTokens(env = process.env) {
@@ -251,6 +253,52 @@ export function listModerationBlocks(db) {
   return { blocks };
 }
 
+const NOTICE_MAX = 140;
+
+/** Keep the support email even when the lead is long. addNotice also caps at 140. */
+export function staffActionNoticeText(lead) {
+  const tail = `如有疑問，請聯絡 ${SUPPORT_EMAIL}。`;
+  const head = String(lead || '').trim();
+  if (!head) return tail.slice(0, NOTICE_MAX);
+  if (`${head}${tail}`.length <= NOTICE_MAX) return `${head}${tail}`;
+  const room = Math.max(0, NOTICE_MAX - tail.length);
+  return `${head.slice(0, room)}${tail}`.slice(0, NOTICE_MAX);
+}
+
+function listingHiddenLead(listing) {
+  const title = String(listing?.title || '').replace(/\s+/g, ' ').trim();
+  if (!title) return '你的刊登已被隱藏，一般街坊不會再見到。';
+  return `刊登「${title}」已被隱藏，一般街坊不會再見到。`;
+}
+
+/** In-app notice for the seller. No reporter, no link back to the hidden listing. */
+export function listingHiddenNotice(listing) {
+  const userId = String(listing?.sellerId || '');
+  if (!userId) return null;
+  return {
+    userId,
+    kind: 'moderation',
+    title: '刊登已隱藏',
+    body: staffActionNoticeText(listingHiddenLead(listing)),
+    href: '',
+    refId: '',
+  };
+}
+
+/** In-app notice for the banned account. No reporter. */
+export function accountBannedNotice(userId) {
+  const id = String(userId || '');
+  if (!id) return null;
+  return {
+    userId: id,
+    kind: 'moderation',
+    title: '帳號已封鎖',
+    body: staffActionNoticeText('你的帳號已被平台封鎖，不能再使用。'),
+    href: '',
+    refId: '',
+  };
+}
+
 /** Hide one listing from ordinary users. Does not change report status or add a user block. */
 export function hideListing(db, { listingId, staffId, confirm, now = Date.now() } = {}) {
   if (confirm !== true) {
@@ -258,13 +306,16 @@ export function hideListing(db, { listingId, staffId, confirm, now = Date.now() 
   }
   const listing = (db?.listings || []).find((row) => row && row.id === listingId);
   if (!listing) return { ok: false, status: 404, error: 'NOT_FOUND', message: '找不到這件刊登' };
+  let fresh = false;
   if (!listing.staffHiddenAt) {
     listing.staffHiddenAt = now;
     listing.staffHiddenBy = String(staffId || '');
+    fresh = true;
   }
   return {
     ok: true,
     listing: { id: listing.id, staffHidden: true, staffHiddenAt: listing.staffHiddenAt },
+    notice: fresh ? listingHiddenNotice(listing) : null,
   };
 }
 
@@ -283,12 +334,15 @@ export function banUser(db, { userId, staffId, confirm, now = Date.now(), env = 
   if (isStaffUser(user, env)) {
     return { ok: false, status: 400, error: 'INVALID_INPUT', message: '不能平台封鎖審核員' };
   }
+  let fresh = false;
   if (!user.bannedAt) {
     user.bannedAt = now;
     user.bannedBy = String(staffId || '');
+    fresh = true;
   }
   return {
     ok: true,
     user: { id: user.id, name: user.name || '', banned: true, bannedAt: user.bannedAt },
+    notice: fresh ? accountBannedNotice(user.id) : null,
   };
 }

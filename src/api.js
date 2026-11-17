@@ -254,6 +254,7 @@ export const ThreadsApi = {
 export const OffersApi = {
   mine: () => api('/api/offers/mine', { auth: true }),
   incoming: () => api('/api/offers/incoming', { auth: true }),
+  seen: (items) => api('/api/offers/seen', { method: 'POST', body: { items: items || [] }, auth: true }),
   respond: (id, payload) =>
     api(`/api/offers/${encodeURIComponent(id)}`, { method: 'PATCH', body: payload, auth: true }),
   hide: (id) => api(`/api/offers/${encodeURIComponent(id)}`, { method: 'DELETE', auth: true }),

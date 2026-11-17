@@ -296,6 +296,65 @@ export function offerHiddenFor(offer, userId, listing) {
   return false;
 }
 
+export function offerRevision(offer) {
+  const n = Number(offer?.updatedAt || offer?.createdAt);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Seller: a pending bid. Buyer: a counter they have not answered. */
+export function offerNeedsAttention(offer, listing, userId) {
+  if (!offer || !listing || !userId) return false;
+  if (listing.sold || listing.removedAt || listing.staffHiddenAt) return false;
+  if (offerHiddenFor(offer, userId, listing)) return false;
+  const status = offer.status || 'pending';
+  if (offer.fromId === userId && status === 'countered') return true;
+  if (listing.sellerId === userId && offer.fromId !== userId && status === 'pending') return true;
+  return false;
+}
+
+export function offerSeenRevision(offer, userId) {
+  const raw = offer?.seenAtBy && typeof offer.seenAtBy === 'object' ? offer.seenAtBy[userId] : 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Attention offers count until this person has seen this exact revision. */
+export function offerReminderUnseen(offer, listing, userId, hidden) {
+  if (!offerNeedsAttention(offer, listing, userId)) return false;
+  if (hidden) {
+    if (hidden.has(offer.fromId)) return false;
+    if (listing.sellerId !== userId && hidden.has(listing.sellerId)) return false;
+  }
+  const revision = offerRevision(offer);
+  return !(revision && offerSeenRevision(offer, userId) === revision);
+}
+
+/** Record the revision the user actually loaded. A newer update stays unseen. */
+export function markOffersSeen(db, userId, items) {
+  if (!db || !userId) return 0;
+  const list = Array.isArray(items) ? items : [];
+  let changed = 0;
+  for (const item of list) {
+    const id = String(item?.id || '').trim();
+    const seenUpdatedAt = Number(item?.updatedAt);
+    if (!id || !Number.isFinite(seenUpdatedAt)) continue;
+    const offer = (db.offers || []).find((row) => row && row.id === id);
+    if (!offer) continue;
+    const listing = (db.listings || []).find((row) => row && row.id === offer.listingId);
+    if (!listing) continue;
+    if (offer.fromId !== userId && listing.sellerId !== userId) continue;
+    const revision = offerRevision(offer);
+    if (!revision || revision !== seenUpdatedAt) continue;
+    if (!offer.seenAtBy || typeof offer.seenAtBy !== 'object' || Array.isArray(offer.seenAtBy)) {
+      offer.seenAtBy = {};
+    }
+    if (Number(offer.seenAtBy[userId]) === revision) continue;
+    offer.seenAtBy[userId] = revision;
+    changed += 1;
+  }
+  return changed;
+}
+
 export function badgeCountsFor(db, userId) {
   const hidden = blockedIdsFor(db, userId);
   for (const id of platformBannedIds(db)) hidden.add(id);
@@ -310,12 +369,7 @@ export function badgeCountsFor(db, userId) {
   let offers = 0;
   for (const offer of db.offers || []) {
     const listing = (db.listings || []).find((l) => l.id === offer.listingId);
-    if (!listing || listing.sold || listing.removedAt || listing.staffHiddenAt) continue;
-    if (offerHiddenFor(offer, userId, listing)) continue;
-    if (hidden.has(offer.fromId) || (listing.sellerId !== userId && hidden.has(listing.sellerId))) continue;
-    const status = offer.status || 'pending';
-    if (offer.fromId === userId && status === 'countered') offers += 1;
-    else if (listing.sellerId === userId && offer.fromId !== userId && status === 'pending') offers += 1;
+    if (offerReminderUnseen(offer, listing, userId, hidden)) offers += 1;
   }
   return { messages, offers };
 }

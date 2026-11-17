@@ -39,6 +39,7 @@ import {
   applyConfirmReceipt,
   backfillDeals,
   badgeCountsFor,
+  markOffersSeen,
   offerHiddenFor,
   threadHiddenFor,
   isActiveReview,
@@ -386,6 +387,7 @@ function offerDto(o, db, viewerId = '') {
     threadId: thread?.id || null,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt || o.createdAt,
+    seenUpdatedAt: viewerId ? Number(o.seenAtBy?.[viewerId]) || 0 : 0,
     canHandoff: access.canHandoff,
     handoff: access.canHandoff ? presentHandoff(findHandoff(db, o.id)) : null,
   };
@@ -983,6 +985,7 @@ app.post('/api/moderation/listings/:id/hide', auth, requireStaff, (req, res) => 
     confirm: req.body?.confirm === true,
   });
   if (!result.ok) return res.status(result.status).json({ error: result.error, message: result.message });
+  if (result.notice) notifyUser(db, result.notice);
   persist();
   res.json({ ok: true, listing: result.listing });
 });
@@ -995,6 +998,7 @@ app.post('/api/moderation/users/:id/ban', auth, requireStaff, (req, res) => {
     confirm: req.body?.confirm === true,
   });
   if (!result.ok) return res.status(result.status).json({ error: result.error, message: result.message });
+  if (result.notice) notifyUser(db, result.notice);
   persist();
   res.json({ ok: true, user: result.user });
 });
@@ -1473,6 +1477,16 @@ app.get('/api/offers/incoming', auth, (req, res) => {
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .map((o) => offerDto(o, db, req.user.id));
   res.json({ offers });
+});
+
+/** The caller has opened 議價 and seen these revisions. Does not touch threads or notices. */
+app.post('/api/offers/seen', auth, (req, res) => {
+  const db = loadDb();
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  const changed = markOffersSeen(db, req.user.id, items);
+  if (changed) persist();
+  const notices = visibleNotices(db, req.user.id).filter((n) => !n.read).length;
+  res.json({ changed, ...badgeCountsFor(db, req.user.id), notices });
 });
 
 /** Remove one offer from the caller's 我的議價. The bid, the thread, and the other person stay. */

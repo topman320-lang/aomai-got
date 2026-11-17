@@ -6,6 +6,12 @@ import {
 } from './password-change.js';
 import { messagesPane } from './messages-view.js';
 import {
+  bargainRemindersToMark,
+  noticeIdsMarkedOnVisit,
+  tabBadges,
+  visibleUnreadNotices,
+} from './reminders.js';
+import {
   concreteFrame,
   coverBox,
   listingShots,
@@ -67,6 +73,7 @@ import {
   login,
   logout,
   markNoticesRead,
+  markOffersSeen,
   markThreadRead,
   moderationReports,
   banAccount,
@@ -490,13 +497,13 @@ function tabBadge(count, label) {
 }
 
 function tabbar(active) {
-  const badges = getBadges();
+  const spec = tabBadges(getBadges());
   const tabs = [
     { id: 'home', label: '首頁' },
-    { id: 'messages', label: '訊息', badge: badges.messages, badgeLabel: `${badges.messages} 則未讀訊息` },
+    { id: 'messages', label: '訊息', badge: spec.messages.count, badgeLabel: spec.messages.label },
     { id: 'post', label: '刊登', post: true },
-    { id: 'bargains', label: '議價', badge: badges.offers, badgeLabel: `${badges.offers} 筆待處理議價` },
-    { id: 'me', label: '我的', badge: badges.notices, badgeLabel: `${badges.notices} 則新提醒` },
+    { id: 'bargains', label: '議價', badge: spec.bargains.count, badgeLabel: spec.bargains.label },
+    { id: 'me', label: '我的' },
   ];
   return `
     <nav class="tabbar" aria-label="主導覽">
@@ -578,13 +585,13 @@ function skeletonGrid(n = 6) {
 }
 
 function paintTabBadges() {
-  const badges = getBadges();
-  const spec = [
-    ['messages', badges.messages, `${badges.messages} 則未讀訊息`],
-    ['bargains', badges.offers, `${badges.offers} 筆待處理議價`],
-    ['me', badges.notices, `${badges.notices} 則新提醒`],
+  const spec = tabBadges(getBadges());
+  const rows = [
+    ['messages', spec.messages.count, spec.messages.label],
+    ['bargains', spec.bargains.count, spec.bargains.label],
+    ['me', spec.me.count, spec.me.label],
   ];
-  for (const [id, count, label] of spec) {
+  for (const [id, count, label] of rows) {
     const tab = document.querySelector(`.tab[data-go="${id}"] .ico`);
     if (!tab) continue;
     tab.querySelector('.tab-badge')?.remove();
@@ -3407,15 +3414,42 @@ async function renderMessages(token = nextView()) {
   if (!requireAuth('messages')) return;
   const header = `<header class="topbar"><h1>訊息</h1></header>`;
   app.innerHTML = shell(`${header}${scamTipHtml('messages-tip')}${skeletonThreads()}`, { tab: 'messages' });
-  let error = null;
+  let threadsError = null;
+  let noticesError = null;
   try {
-    await Promise.all([refreshThreads(), refreshNotices()]);
+    await refreshThreads();
   } catch (err) {
-    error = err;
-    errToast(err, '載入訊息失敗');
+    threadsError = err;
+  }
+  try {
+    await refreshNotices();
+  } catch (err) {
+    noticesError = err;
   }
   if (!isView(token)) return;
-  const { threads, listings } = getState();
+  const error = threadsError || noticesError;
+  if (error) errToast(error, '載入訊息失敗');
+  const loadedState = getState();
+  const threads = loadedState.threads || [];
+  const listings = loadedState.listings || [];
+  const noticesLoaded = !noticesError;
+  const unreadNotices = visibleUnreadNotices(loadedState.notices);
+  const pane = messagesPane({
+    threadCount: threads.length,
+    noticeCount: noticesLoaded ? unreadNotices.length : 0,
+    failed: Boolean(threadsError) || Boolean(noticesError && threads.length === 0),
+  });
+  const showStrips = noticesLoaded && pane !== 'error';
+  const strips = showStrips ? unreadNotices : [];
+  const noticeIds = noticeIdsMarkedOnVisit(strips, { loaded: showStrips });
+  if (noticeIds.length) {
+    try {
+      await markNoticesRead(noticeIds);
+    } catch {
+      /* leave the reminder if marking failed */
+    }
+  }
+  if (!isView(token)) return;
   const list = threads
     .map((t) => {
       const l = listings.find((x) => x.id === t.listingId) || t.listing;
@@ -3437,18 +3471,12 @@ async function renderMessages(token = nextView()) {
           </div>`;
     })
     .join('');
-  const unreadNotices = (getState().notices || []).filter((n) => !n.read).slice(0, 3);
-  const noticeStrip = unreadNotices
+  const noticeStrip = strips
     .map(
       (n) =>
         `<button class="notice-strip" type="button" data-notice="${escapeAttr(n.id)}" data-href="${escapeAttr(n.href || '')}">${escapeHtml(n.body)}</button>`
     )
     .join('');
-  const pane = messagesPane({
-    threadCount: threads.length,
-    noticeCount: unreadNotices.length,
-    failed: Boolean(error),
-  });
   const body =
     pane === 'error'
       ? listErrorHtml('訊息載入失敗')
@@ -3460,10 +3488,12 @@ async function renderMessages(token = nextView()) {
     btn.addEventListener('click', async () => {
       const id = btn.getAttribute('data-notice');
       const href = btn.getAttribute('data-href');
-      try {
-        await markNoticesRead(id ? [id] : []);
-      } catch {
-        /* still open the thread */
+      if (id) {
+        try {
+          await markNoticesRead([id]);
+        } catch {
+          /* still open the thread */
+        }
       }
       paintTabBadges();
       if (href) go(href);
@@ -4420,14 +4450,49 @@ async function renderBargainsTab(token = nextView()) {
   const header = `<header class="topbar"><h1>我的議價</h1></header>`;
   app.innerHTML = shell(`${header}${skeletonThreads()}`, { tab: 'bargains' });
   let error = null;
+  let mineLoaded = false;
+  let incomingLoaded = false;
   try {
     await refreshListings();
-    await refreshMyOffers();
-    await refreshIncomingOffers();
-    await refreshThreads();
   } catch (err) {
     error = err;
-    errToast(err, '載入議價失敗');
+  }
+  try {
+    await refreshMyOffers();
+    mineLoaded = true;
+  } catch (err) {
+    error = error || err;
+  }
+  try {
+    await refreshIncomingOffers();
+    incomingLoaded = true;
+  } catch (err) {
+    error = error || err;
+  }
+  try {
+    await refreshThreads();
+  } catch (err) {
+    error = error || err;
+  }
+  if (!isView(token)) return;
+  if (error) errToast(error, '載入議價失敗');
+  if (mineLoaded || incomingLoaded) {
+    const loaded = getState();
+    const marks = bargainRemindersToMark({
+      userId: loaded.me?.id,
+      incoming: loaded.incomingOffers,
+      mine: (loaded.offers || []).filter((offer) => offer.fromId === loaded.me?.id),
+      listings: loaded.listings,
+      incomingLoaded,
+      mineLoaded,
+    });
+    if (marks.length) {
+      try {
+        await markOffersSeen(marks);
+      } catch {
+        /* keep the reminder if marking failed */
+      }
+    }
   }
   if (!isView(token)) return;
   const state = getState();
